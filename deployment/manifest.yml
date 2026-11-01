@@ -1,0 +1,37 @@
+# SAP BTP Cloud Foundry deployment manifest for the SupplyShield backend.
+#
+# Prerequisites:
+#   cf login
+#   Bind the existing Hackfest HDI container service. Do not create another
+#   HANA database instance or container. Replace `supplyshield-db` below with
+#   the exact existing service name if necessary.
+#
+# Build the UI first so the server can serve it statically:
+#   npm --prefix ui run build
+#
+# Deploy from the repository root:
+#   cf push -f deployment/manifest.yml
+#
+# The app reads the bound HDI container from VCAP_SERVICES automatically
+# (server/src/db/hana-client.js). No credentials appear in this file.
+
+---
+applications:
+  - name: supplyshield
+    path: ../
+    buildpacks:
+      - nodejs_buildpack
+    command: node server/src/index.js
+    memory: 512M
+    disk_quota: 1G
+    instances: 1
+    services:
+      - supplyshield-db
+    env:
+      NODE_ENV: production
+      HANA_SCHEMA: SUPPLYSHIELD
+      WEATHER_PROVIDER: open-meteo
+      # Optional: SAP Generative AI Hub orchestration service key.
+      # Prefer a user-provided service over env vars for secrets:
+      #   cf create-user-provided-service supplyshield-aicore -p '{"AICORE_SERVICE_KEY": "..."}'
+      # then add `supplyshield-aicore` to `services:` above.

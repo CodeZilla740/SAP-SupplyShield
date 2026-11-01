@@ -1,0 +1,3123 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
+import * as L from "leaflet"
+import "leaflet/dist/leaflet.css"
+import {
+  approvePlan,
+  downloadJson,
+  getAudit,
+  getCompliance,
+  getCurrentPlan,
+  getDisruption,
+  getHealth,
+  getInventory,
+  getOverview,
+  getShipment,
+  getShipments,
+  rejectPlan,
+  runAnalysis,
+  type AgentStatus,
+  type AuditData,
+  type ComplianceData,
+  type DisruptionDetail,
+  type HealthInfo,
+  type InventoryData,
+  type OverviewData,
+  type PlanData,
+  type ShipmentRow,
+  type ShipmentsData,
+} from "./api"
+
+type Screen = "Overview" | "Disruption Monitor" | "Shipment Intelligence" | "Inventory & Stock Risk" | "AI Recovery Planning" | "Cold-Chain Compliance" | "Approval Centre" | "Execution & Audit Trail"
+type GlobalSearchResult =
+  | { key: string; kind: "shipment"; label: string; detail: string; shipment: ShipmentRow }
+  | { key: string; kind: "medicine" | "facility"; label: string; detail: string }
+
+type IconName = "overview" | "radar" | "truck" | "inventory" | "brain" | "snow" | "approval" | "audit" | "search" | "bell" | "sync" | "shield" | "alert" | "hospital" | "medicine" | "arrow" | "spark" | "check" | "close" | "clock" | "pin" | "route" | "temperature" | "box" | "chevron" | "menu" | "filter" | "plus" | "play" | "download" | "user" | "document"
+
+const iconPaths: Record<IconName, ReactNode> = {
+  overview: (
+    <>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+    </>
+  ),
+  radar: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <path d="M12 12 18.5 5.5" />
+      <circle cx="12" cy="12" r="1" />
+    </>
+  ),
+  truck: (
+    <>
+      <path d="M3 6h11v11H3z" />
+      <path d="M14 10h4l3 3v4h-7z" />
+      <circle cx="7" cy="19" r="2" />
+      <circle cx="18" cy="19" r="2" />
+    </>
+  ),
+  inventory: (
+    <>
+      <path d="m4 7 8-4 8 4-8 4-8-4Z" />
+      <path d="m4 7 8 4 8-4M4 7v10l8 4 8-4V7M12 11v10" />
+    </>
+  ),
+  brain: (
+    <>
+      <path d="M9.5 4.5A3 3 0 0 0 5 7a3 3 0 0 0 .7 5.9A3.5 3.5 0 0 0 10 18v-4" />
+      <path d="M14.5 4.5A3 3 0 0 1 19 7a3.5 3.5 0 0 1-.7 5.9A3.5 3.5 0 0 1 14 18v-4" />
+      <path d="M10 6v14M14 6v14M8 10h2M14 10h2M8 15h2M14 15h2" />
+    </>
+  ),
+  snow: (
+    <>
+      <path d="M12 2v20M4.2 6.5l15.6 11M4.2 17.5l15.6-11" />
+      <path d="m9 4 3 3 3-3M9 20l3-3 3 3M4.5 9.5l4 .7-1.6-3.8M19.5 14.5l-4-.7 1.6 3.8M4.5 14.5l4-.7 1.6 3.8M19.5 9.5l-4 .7 1.6-3.8" />
+    </>
+  ),
+  approval: (
+    <>
+      <path d="M6 3h12v18H6z" />
+      <path d="m9 12 2 2 4-5M9 6h6M9 18h6" />
+    </>
+  ),
+  audit: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2M5 3l-2 3 3 2" />
+    </>
+  ),
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </>
+  ),
+  bell: (
+    <>
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" />
+    </>
+  ),
+  sync: (
+    <>
+      <path d="M20 7h-5V2M4 17h5v5" />
+      <path d="M18.5 9A7 7 0 0 0 6 5.5L4 7M5.5 15A7 7 0 0 0 18 18.5l2-1.5" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="M12 3 4 6v5c0 5 3.3 8.4 8 10 4.7-1.6 8-5 8-10V6l-8-3Z" />
+      <path d="m8.5 12 2.2 2.2 4.8-5" />
+    </>
+  ),
+  alert: (
+    <>
+      <path d="M12 3 2.8 19a1.4 1.4 0 0 0 1.2 2h16a1.4 1.4 0 0 0 1.2-2L12 3Z" />
+      <path d="M12 9v4M12 17h.01" />
+    </>
+  ),
+  hospital: (
+    <>
+      <path d="M5 21V5h14v16M3 21h18" />
+      <path d="M9 9h6M12 6v6M8 15h2M14 15h2M10 21v-3h4v3" />
+    </>
+  ),
+  medicine: (
+    <>
+      <path d="M8 3h8v4H8zM7 7h10l2 3v11H5V10l2-3Z" />
+      <path d="M9 14h6M12 11v6" />
+    </>
+  ),
+  arrow: (
+    <>
+      <path d="M5 12h14M14 7l5 5-5 5" />
+    </>
+  ),
+  spark: (
+    <>
+      <path d="m12 3 1.4 4.6L18 9l-4.6 1.4L12 15l-1.4-4.6L6 9l4.6-1.4L12 3Z" />
+      <path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z" />
+    </>
+  ),
+  check: <path d="m5 12 4 4L19 6" />,
+  close: (
+    <>
+      <path d="m6 6 12 12M18 6 6 18" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </>
+  ),
+  pin: (
+    <>
+      <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+      <circle cx="12" cy="10" r="2.5" />
+    </>
+  ),
+  route: (
+    <>
+      <circle cx="5" cy="18" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <path d="M7 18h2a3 3 0 0 0 3-3V9a3 3 0 0 1 3-3h2" />
+    </>
+  ),
+  temperature: (
+    <>
+      <path d="M10 14.8V5a2 2 0 0 1 4 0v9.8a4 4 0 1 1-4 0Z" />
+      <path d="M12 9v8" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M4 7h16v14H4zM8 3h8v4M9 12h6" />
+    </>
+  ),
+  chevron: <path d="m9 6 6 6-6 6" />,
+  menu: (
+    <>
+      <path d="M4 7h16M4 12h16M4 17h16" />
+    </>
+  ),
+  filter: <path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z" />,
+  plus: (
+    <>
+      <path d="M12 5v14M5 12h14" />
+    </>
+  ),
+  play: <path d="m8 5 11 7-11 7V5Z" />,
+  download: (
+    <>
+      <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+    </>
+  ),
+  user: (
+    <>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 21a7 7 0 0 1 14 0" />
+    </>
+  ),
+  document: (
+    <>
+      <path d="M6 3h9l3 3v15H6zM15 3v4h4M9 11h6M9 15h6" />
+    </>
+  ),
+}
+
+function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {iconPaths[name]}
+    </svg>
+  )
+}
+
+const navItems: { label: Screen; icon: IconName }[] = [
+  { label: "Overview", icon: "overview" },
+  { label: "Disruption Monitor", icon: "radar" },
+  { label: "Shipment Intelligence", icon: "truck" },
+  { label: "Inventory & Stock Risk", icon: "inventory" },
+  { label: "AI Recovery Planning", icon: "brain" },
+  { label: "Cold-Chain Compliance", icon: "snow" },
+  { label: "Approval Centre", icon: "approval" },
+  { label: "Execution & Audit Trail", icon: "audit" },
+]
+
+function StatusPill({ tone, children }: { tone: string; children: ReactNode }) {
+  return (
+    <span className={`status-pill ${tone}`}>
+      <i />
+      {children}
+    </span>
+  )
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  actions,
+}: {
+  eyebrow?: string
+  title: string
+  description: string
+  actions?: ReactNode
+}) {
+  return (
+    <div className="section-header">
+      <div>
+        {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+        <h1>{title}</h1>
+        <p>{description}</p>
+      </div>
+      {actions && <div className="section-actions">{actions}</div>}
+    </div>
+  )
+}
+
+function Loading({ label }: { label: string }) {
+  return (
+    <section className="panel" style={{ padding: 28 }}>
+      <span className="panel-kicker">{label}</span>
+      <p style={{ marginTop: 8, opacity: 0.7 }}>Fetching live data from the SupplyShield backend…</p>
+    </section>
+  )
+}
+
+function istTime(d: Date) {
+  return d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour12: false })
+}
+
+function useClock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(t)
+  }, [])
+  return now
+}
+
+function App() {
+  const [screen, setScreen] = useState<Screen>("Overview")
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [selectedShipment, setSelectedShipment] = useState<ShipmentRow | null>(null)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("")
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
+  const [globalSearchLoading, setGlobalSearchLoading] = useState(false)
+  const [globalSearchError, setGlobalSearchError] = useState("")
+  const [globalSearchData, setGlobalSearchData] = useState<{
+    shipments: ShipmentRow[]
+    inventory: InventoryData["rows"]
+  } | null>(null)
+  const globalSearchRef = useRef<HTMLDivElement>(null)
+  const globalSearchInputRef = useRef<HTMLInputElement>(null)
+  const globalSearchRequest = useRef<Promise<void> | null>(null)
+  const [assessmentRunning, setAssessmentRunning] = useState(false)
+  const [planStatus, setPlanStatus] = useState<"PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null>(null)
+  const [health, setHealth] = useState<HealthInfo | null>(null)
+  const [toast, setToast] = useState("")
+  const [dataVersion, setDataVersion] = useState(0)
+  const now = useClock()
+
+  const navigate = (next: Screen) => {
+    setScreen(next)
+    setMenuOpen(false)
+    window.scrollTo({ top: 0, behavior: "smooth" })
+  }
+
+  const notify = (message: string) => {
+    setToast(message)
+    window.setTimeout(() => setToast(""), 3200)
+  }
+
+  const refresh = useCallback(() => setDataVersion((v) => v + 1), [])
+
+  const loadGlobalSearchData = useCallback(() => {
+    if (globalSearchData || globalSearchRequest.current) return
+    setGlobalSearchLoading(true)
+    setGlobalSearchError("")
+    const request = Promise.all([getShipments(), getInventory()])
+      .then(([shipments, inventory]) => {
+        setGlobalSearchData({ shipments: shipments.shipments, inventory: inventory.rows })
+      })
+      .catch((error: unknown) => {
+        setGlobalSearchError(
+          `Unable to search live data: ${error instanceof Error ? error.message : "Unknown error"}`,
+        )
+      })
+      .finally(() => {
+        globalSearchRequest.current = null
+        setGlobalSearchLoading(false)
+      })
+    globalSearchRequest.current = request
+  }, [globalSearchData])
+
+  const globalSearchResults: GlobalSearchResult[] = (() => {
+    const query = globalSearchQuery.trim().toLocaleLowerCase()
+    if (!query || !globalSearchData) return []
+
+    const matches = (value: string) => value.toLocaleLowerCase().includes(query)
+    const results: GlobalSearchResult[] = []
+    const seen = new Set<string>()
+
+    for (const shipment of globalSearchData.shipments) {
+      if (
+        matches(shipment.id) ||
+        matches(shipment.medicine) ||
+        matches(shipment.origin) ||
+        matches(shipment.destination)
+      ) {
+        results.push({
+          key: `shipment:${shipment.id}`,
+          kind: "shipment",
+          label: shipment.id,
+          detail: `${shipment.medicine} · ${shipment.origin} → ${shipment.destination}`,
+          shipment,
+        })
+      }
+    }
+
+    const medicines = new Set(globalSearchData.inventory.map((row) => row.medicine))
+    globalSearchData.shipments.forEach((shipment) => medicines.add(shipment.medicine))
+    for (const medicine of medicines) {
+      const key = medicine.toLocaleLowerCase()
+      if (matches(medicine) && !seen.has(`medicine:${key}`)) {
+        seen.add(`medicine:${key}`)
+        results.push({
+          key: `medicine:${key}`,
+          kind: "medicine",
+          label: medicine,
+          detail: "Medicine · Inventory",
+        })
+      }
+    }
+
+    const facilities = new Set([
+      ...globalSearchData.inventory.map((row) => row.facility),
+      ...globalSearchData.shipments.flatMap((shipment) => [shipment.origin, shipment.destination]),
+    ])
+    for (const facility of facilities) {
+      const key = facility.toLocaleLowerCase()
+      if (matches(facility) && !seen.has(`facility:${key}`)) {
+        seen.add(`facility:${key}`)
+        results.push({
+          key: `facility:${key}`,
+          kind: "facility",
+          label: facility,
+          detail: "Facility / location · Inventory",
+        })
+      }
+    }
+
+    return results.slice(0, 8)
+  })()
+
+  const selectGlobalSearchResult = (result: GlobalSearchResult) => {
+    setGlobalSearchOpen(false)
+    setGlobalSearchQuery("")
+    if (result.kind === "shipment") {
+      setSelectedShipment(result.shipment)
+      navigate("Shipment Intelligence")
+      return
+    }
+    navigate("Inventory & Stock Risk")
+  }
+
+  useEffect(() => {
+    if (!globalSearchOpen) return
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!(event.target instanceof Node) || !globalSearchRef.current?.contains(event.target)) {
+        setGlobalSearchOpen(false)
+      }
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick)
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick)
+  }, [globalSearchOpen])
+
+  useEffect(() => {
+    const openSearchShortcut = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault()
+        globalSearchInputRef.current?.focus()
+        setGlobalSearchOpen(true)
+      }
+    }
+    document.addEventListener("keydown", openSearchShortcut)
+    return () => document.removeEventListener("keydown", openSearchShortcut)
+  }, [])
+
+  useEffect(() => {
+    getHealth().then(setHealth).catch(() => setHealth(null))
+  }, [dataVersion])
+
+  useEffect(() => {
+    getCurrentPlan()
+      .then((p) => setPlanStatus(p.plan.status))
+      .catch(() => setPlanStatus(null))
+  }, [dataVersion])
+
+  const runAssessment = async () => {
+    setAssessmentRunning(true)
+    try {
+      const result = await runAnalysis("INC-2026-1104-03")
+      refresh()
+      notify(result.message || "Impact assessment complete — recovery scenarios generated.")
+      navigate("AI Recovery Planning")
+    } catch (e) {
+      notify(`Assessment failed: ${(e as Error).message}`)
+    } finally {
+      setAssessmentRunning(false)
+    }
+  }
+
+  const approval: "pending" | "approved" | "rejected" =
+    planStatus === "APPROVED" ? "approved" : planStatus === "REJECTED" ? "rejected" : "pending"
+
+  const dbLabel = health
+    ? health.db.engine === "hana"
+      ? "SAP HANA CLOUD"
+      : "LOCAL DEMO DB"
+    : "CONNECTING…"
+  const aiLabel = health
+    ? health.llm.configured
+      ? "GENERATIVE AI HUB"
+      : "TEMPLATE MODE"
+    : "…"
+
+  return (
+    <div className="app-shell">
+      <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
+        <div className="brand">
+          <div className="brand-symbol">
+            <svg viewBox="0 0 42 42" aria-hidden="true">
+              <path d="M21 3 35 9v10c0 9-5.8 15.2-14 19-8.2-3.8-14-10-14-19V9l14-6Z" />
+              <circle cx="21" cy="13" r="2.7" />
+              <circle cx="14" cy="21" r="2.7" />
+              <circle cx="28" cy="21" r="2.7" />
+              <path d="m21 15.7-5 3.6M21 15.7l5 3.6M16.7 22.8l4.3 5 4.3-5" />
+            </svg>
+          </div>
+          <div>
+            <strong>SUPPLYSHIELD</strong>
+            <span>Resilient medical supply network</span>
+          </div>
+        </div>
+        <div className="nav-label">COMMAND CENTRE</div>
+        <nav className="nav-list">
+          {navItems.map((item) => (
+            <button
+              key={item.label}
+              className={`nav-item ${screen === item.label ? "active" : ""}`}
+              onClick={() => navigate(item.label)}
+            >
+              <span className="nav-icon">
+                <Icon name={item.icon} size={18} />
+              </span>
+              <span>{item.label}</span>
+              {item.label === "Disruption Monitor" && <b>3</b>}
+              {item.label === "Approval Centre" && approval === "pending" && (
+                <i className="nav-pulse" />
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-spacer" />
+        <div className="ecosystem-card" title={health ? `${health.db.label} · ${health.llm.label}` : "Connecting to backend…"}>
+          <div>
+            <span className="sap-word">SAP</span>
+            <span className="ecosystem-copy">
+              <b>{dbLabel}</b>
+              <small>HANA · {aiLabel}</small>
+            </span>
+          </div>
+          <span className="live-dot" />
+        </div>
+        <div className="user-card">
+          <div className="avatar">AK</div>
+          <div>
+            <strong>Arjun Kumar</strong>
+            <span>Supply-chain planner</span>
+          </div>
+          <Icon name="chevron" size={15} />
+        </div>
+      </aside>
+
+      <main className="workspace">
+        <header className="topbar">
+          <button
+            className="icon-button menu-button"
+            onClick={() => setMenuOpen(!menuOpen)}
+            aria-label="Open navigation"
+          >
+            <Icon name="menu" />
+          </button>
+          <div className="global-search-wrap" ref={globalSearchRef}>
+            <div className="global-search">
+              <Icon name="search" size={17} />
+              <input
+                ref={globalSearchInputRef}
+                aria-label="Global search"
+                aria-autocomplete="list"
+                aria-controls="global-search-results"
+                aria-expanded={globalSearchOpen && Boolean(globalSearchQuery.trim())}
+                placeholder="Search shipments, medicines, hospitals..."
+                value={globalSearchQuery}
+                onFocus={() => setGlobalSearchOpen(true)}
+                onChange={(event) => {
+                  const query = event.target.value
+                  setGlobalSearchQuery(query)
+                  setGlobalSearchOpen(true)
+                  if (query.trim()) loadGlobalSearchData()
+                  else setGlobalSearchError("")
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setGlobalSearchOpen(false)
+                }}
+              />
+              {globalSearchQuery && (
+                <button
+                  className="global-search-clear"
+                  aria-label="Clear search"
+                  onClick={() => {
+                    setGlobalSearchQuery("")
+                    setGlobalSearchError("")
+                    setGlobalSearchOpen(true)
+                    globalSearchInputRef.current?.focus()
+                  }}
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              )}
+              <kbd>⌘ K</kbd>
+            </div>
+            {globalSearchOpen && Boolean(globalSearchQuery.trim()) && (
+              <div className="global-search-results" id="global-search-results" role="listbox">
+                {globalSearchLoading ? (
+                  <div className="global-search-message" role="status">Searching live records…</div>
+                ) : globalSearchError ? (
+                  <div className="global-search-message search-error" role="alert">
+                    <span>{globalSearchError}</span>
+                    <button onClick={loadGlobalSearchData}>Retry</button>
+                  </div>
+                ) : globalSearchResults.length ? (
+                  globalSearchResults.map((result) => (
+                    <button
+                      className="global-search-result"
+                      key={result.key}
+                      role="option"
+                      aria-selected="false"
+                      onClick={() => selectGlobalSearchResult(result)}
+                    >
+                      <span className={`global-search-result-icon ${result.kind}`}>
+                        <Icon
+                          name={result.kind === "shipment" ? "truck" : result.kind === "medicine" ? "medicine" : "hospital"}
+                          size={15}
+                        />
+                      </span>
+                      <span className="global-search-result-copy">
+                        <b>{result.label}</b>
+                        <small>{result.detail}</small>
+                      </span>
+                      <Icon name="chevron" size={14} />
+                    </button>
+                  ))
+                ) : (
+                  <div className="global-search-message">No results found</div>
+                )}
+              </div>
+            )}
+          </div>
+          <div className="topbar-right">
+            <div className="sync-label">
+              <Icon name="sync" size={14} />
+              <span>
+                <b>SYNCED</b>
+                <small>{istTime(now)} IST</small>
+              </span>
+            </div>
+            <button
+              className="icon-button notification"
+              aria-label="Notifications"
+              onClick={() => notify("3 critical alerts are listed on the Overview priority queue.")}
+            >
+              <Icon name="bell" size={18} />
+            </button>
+            <div className="top-avatar">AK</div>
+          </div>
+        </header>
+
+        <div className="page-content">
+          {screen === "Overview" && <Overview navigate={navigate} version={dataVersion} />}
+          {screen === "Disruption Monitor" && (
+            <DisruptionMonitor
+              running={assessmentRunning}
+              runAssessment={runAssessment}
+              version={dataVersion}
+            />
+          )}
+          {screen === "Shipment Intelligence" && (
+            <ShipmentIntelligence selectShipment={setSelectedShipment} version={dataVersion} />
+          )}
+          {screen === "Inventory & Stock Risk" && (
+            <InventoryRisk navigate={navigate} version={dataVersion} />
+          )}
+          {screen === "AI Recovery Planning" && (
+            <RecoveryPlanning navigate={navigate} version={dataVersion} />
+          )}
+          {screen === "Cold-Chain Compliance" && <Compliance version={dataVersion} />}
+          {screen === "Approval Centre" && (
+            <ApprovalCentre
+              approval={approval}
+              onDecision={(status) => {
+                setPlanStatus(status)
+                refresh()
+                notify(
+                  status === "APPROVED"
+                    ? "Recovery plan approved and added to the audit trail."
+                    : "Plan rejected and returned for replanning.",
+                )
+              }}
+              onBlocked={(message) => notify(message)}
+              navigate={navigate}
+              version={dataVersion}
+            />
+          )}
+          {screen === "Execution & Audit Trail" && (
+            <AuditTrail approval={approval} version={dataVersion} notify={notify} />
+          )}
+          <footer>
+            <span>SUPPLYSHIELD / SAP HACKFEST BENGALURU 2026</span>
+            <span>
+              <i className="live-dot" />
+              {health ? health.db.label : "Connecting to backend…"}
+            </span>
+          </footer>
+        </div>
+      </main>
+
+      {selectedShipment && (
+        <ShipmentDrawer
+          shipment={selectedShipment}
+          close={() => setSelectedShipment(null)}
+          navigate={navigate}
+        />
+      )}
+      {menuOpen && (
+        <button
+          className="mobile-scrim"
+          aria-label="Close navigation"
+          onClick={() => setMenuOpen(false)}
+        />
+      )}
+      {toast && (
+        <div className="toast">
+          <Icon name="check" size={17} />
+          {toast}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Overview({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+  const [data, setData] = useState<OverviewData | null>(null)
+  const [mapView, setMapView] = useState<"street" | "satellite">("street")
+  useEffect(() => {
+    getOverview().then(setData).catch(() => setData(null))
+  }, [version])
+  if (!data) return <Loading label="EXECUTIVE CONTROL TOWER" />
+  return (
+    <>
+      <SectionHeader
+        eyebrow="EXECUTIVE CONTROL TOWER"
+        title="Good evening, Planner"
+        description="Your medical supply network, intelligently protected."
+        actions={
+          <button
+            className="button primary"
+            onClick={() => navigate("Disruption Monitor")}
+          >
+            <Icon name="radar" size={16} />
+            Investigate disruption <Icon name="arrow" size={15} />
+          </button>
+        }
+      />
+
+      <section className="health-strip">
+        <div className="health-score">
+          <div className="score-ring">
+            <svg viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r="26" />
+              <circle className="score-progress" cx="32" cy="32" r="26" />
+            </svg>
+            <span>
+              <b>{data.health.score}</b>
+              <small>/100</small>
+            </span>
+          </div>
+          <div>
+            <span>NETWORK RESILIENCE</span>
+            <strong>{data.health.status}</strong>
+            <small>{data.health.delta}</small>
+          </div>
+        </div>
+        <div className="health-divider" />
+        {data.health.signals.map((s) => (
+          <div className="health-signal" key={s.label}>
+            <i className={s.tone} />
+            <span>
+              <small>{s.label}</small>
+              <b>{s.value}</b>
+            </span>
+          </div>
+        ))}
+        <div className="health-updated">
+          <Icon name="sync" size={14} />
+          Live network model
+        </div>
+      </section>
+
+      <section className="kpi-grid">
+        {data.kpis.map(({ label, value, trend, detail, icon, tone }) => (
+          <article className="kpi-card" key={label}>
+            <div className={`kpi-icon ${tone}`}>
+              <Icon name={icon as IconName} size={20} />
+            </div>
+            <span>{label}</span>
+            <div className="kpi-value">
+              <strong>{value}</strong>
+              {label === "Critical Medicine Stock" && <small>DAYS</small>}
+            </div>
+            <div className={`kpi-trend ${tone}`}>
+              <b>{trend}</b>
+              <span>{detail}</span>
+            </div>
+            <div className="mini-bars">
+              {[30, 45, 38, 66, 52, 82, 70, 91].map((height, i) => (
+                <i key={i} style={{ height: `${height}%` }} />
+              ))}
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <section className="command-grid">
+        <article className="panel map-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">LIVE NETWORK TOPOLOGY</span>
+              <h2>India medical supply network</h2>
+            </div>
+            <div className="map-heading-actions">
+              <div className="map-legend">
+                <span>
+                  <i className="safe" />
+                  Safe
+                </span>
+                <span>
+                  <i className="alternate" />
+                  Alternative
+                </span>
+                <span>
+                  <i className="disrupted" />
+                  Disrupted
+                </span>
+              </div>
+              <div className="map-view-toggle" role="group" aria-label="Map layer">
+                <button
+                  type="button"
+                  aria-pressed={mapView === "street"}
+                  onClick={() => setMapView("street")}
+                >
+                  Street
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={mapView === "satellite"}
+                  onClick={() => setMapView("satellite")}
+                >
+                  Satellite
+                </button>
+              </div>
+            </div>
+          </div>
+          <NetworkMap
+            view={mapView}
+            mapEvent={data.mapEvent}
+            onOpenDisruption={() => navigate("Disruption Monitor")}
+          />
+        </article>
+
+      </section>
+
+      <section className="panel alerts-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">PRIORITY QUEUE</span>
+            <h2>Critical alerts</h2>
+          </div>
+          <button
+            className="text-button"
+            onClick={() => navigate("Disruption Monitor")}
+          >
+            View all intelligence <Icon name="arrow" size={14} />
+          </button>
+        </div>
+        <div className="alerts-table">
+          {data.alerts.map(([severity, location, medicine, message, time]) => (
+            <div className="alert-row" key={message}>
+              <span className={`severity ${severity.toLowerCase()}`}>
+                {severity}
+              </span>
+              <div className="alert-location">
+                <b>{location}</b>
+                <small>{medicine}</small>
+              </div>
+              <p>{message}</p>
+              <time>{time}</time>
+              <button aria-label="View alert" onClick={() => navigate("Disruption Monitor")}>
+                <Icon name="chevron" size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  )
+}
+
+const mapTiles = {
+  street: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles © Esri — Esri, HERE, Garmin, (c) OpenStreetMap contributors, and the GIS user community",
+  },
+  satellite: {
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Imagery © Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+  },
+} as const
+
+function NetworkMap({
+  view,
+  mapEvent,
+  onOpenDisruption,
+}: {
+  view: "street" | "satellite"
+  mapEvent: OverviewData["mapEvent"]
+  onOpenDisruption: () => void
+}) {
+  const mapElement = useRef<HTMLDivElement>(null)
+  const mapInstance = useRef<L.Map | null>(null)
+  const tileLayers = useRef<Record<"street" | "satellite", L.TileLayer> | null>(null)
+  const [zoom, setZoom] = useState(6)
+  const [tileError, setTileError] = useState(false)
+
+  useEffect(() => {
+    if (!mapElement.current) return
+
+    const initialZoom = mapElement.current.clientWidth < 600 ? 5 : 6
+    const map = L.map(mapElement.current, {
+      center: [16.4, 77.3],
+      zoom: initialZoom,
+      minZoom: 4,
+      maxZoom: 18,
+      zoomControl: false,
+      scrollWheelZoom: true,
+      zoomAnimation: true,
+      fadeAnimation: true,
+      markerZoomAnimation: true,
+    })
+    const layers = {
+      street: L.tileLayer(mapTiles.street.url, {
+        maxZoom: 18,
+        attribution: mapTiles.street.attribution,
+      }),
+      satellite: L.tileLayer(mapTiles.satellite.url, {
+        maxZoom: 18,
+        attribution: mapTiles.satellite.attribution,
+      }),
+    }
+    layers[view].addTo(map)
+    mapInstance.current = map
+    tileLayers.current = layers
+    setZoom(initialZoom)
+
+    const handleTileError = () => setTileError(true)
+    layers.street.on("tileerror", handleTileError)
+    layers.satellite.on("tileerror", handleTileError)
+    map.on("zoomend", () => setZoom(map.getZoom()))
+
+    const routeStyle = {
+      weight: 4,
+      opacity: 0.88,
+      dashArray: "7 8",
+      lineCap: "round" as const,
+      interactive: true,
+    }
+    L.polyline(
+      [
+        [19.076, 72.8777],
+        [18.5, 75.5],
+        [17.385, 78.4867],
+      ],
+      { ...routeStyle, color: "#21a179" },
+    )
+      .bindPopup("Safe route · Mumbai to Hyderabad")
+      .addTo(map)
+    L.polyline(
+      [
+        [19.076, 72.8777],
+        [16.7, 74.4],
+        [12.9716, 77.5946],
+      ],
+      { ...routeStyle, color: "#21a179" },
+    )
+      .bindPopup("Safe route · Mumbai to Bengaluru")
+      .addTo(map)
+    L.polyline(
+      [
+        [13.0827, 80.2707],
+        [12.8, 79.6],
+        [12.9716, 77.5946],
+      ],
+      { ...routeStyle, color: "#ef5350", weight: 5 }
+    )
+      .bindPopup("Disrupted route · Chennai to Bengaluru")
+      .addTo(map)
+    L.polyline(
+      [
+        [13.0827, 80.2707],
+        [15.1, 79.4],
+        [17.385, 78.4867],
+      ],
+      { ...routeStyle, color: "#20aabd" },
+    )
+      .bindPopup("Alternative route · Chennai to Hyderabad")
+      .addTo(map)
+    L.polyline(
+      [
+        [17.385, 78.4867],
+        [15.2, 78.0],
+        [12.9716, 77.5946],
+      ],
+      { ...routeStyle, color: "#20aabd" },
+    )
+      .bindPopup("Alternative route · Hyderabad to Bengaluru")
+      .addTo(map)
+
+    const locations = [
+      {
+        position: [19.076, 72.8777] as L.LatLngTuple,
+        title: "Mumbai Distribution Hub",
+        meta: "97% capacity · Normal",
+        tone: "safe",
+        labelSide: "right",
+      },
+      {
+        position: [17.385, 78.4867] as L.LatLngTuple,
+        title: "Hyderabad Distribution Centre",
+        meta: "84% capacity · Monitoring",
+        tone: "safe",
+        labelSide: "right",
+      },
+      {
+        position: [12.9716, 77.5946] as L.LatLngTuple,
+        title: "Bengaluru Warehouse",
+        meta: "Transfer ready · 340 units",
+        tone: "alternate",
+        labelSide: "right",
+      },
+      {
+        position: [13.0827, 80.2707] as L.LatLngTuple,
+        title: "Chennai Port",
+        meta: "CLOSED · Cyclone Varun",
+        tone: "critical",
+        labelSide: "above",
+      },
+    ]
+    for (const location of locations) {
+      L.marker(location.position, {
+        icon: L.divIcon({
+          className: "network-map-marker-icon",
+          iconSize: [1, 1],
+          iconAnchor: [8, 12],
+          html: `<span class="network-map-pin ${location.tone} label-${location.labelSide}"><i></i><span><b>${location.title}</b><small>${location.meta}</small></span></span>`,
+        }),
+        title: location.title,
+        keyboard: true,
+      })
+        .bindPopup(`<strong>${location.title}</strong><br>${location.meta}`)
+        .addTo(map)
+    }
+
+    const hospitals = [
+      { position: [12.96, 77.6] as L.LatLngTuple, name: "St. Martha", labelSide: "left" },
+      { position: [17.41, 78.45] as L.LatLngTuple, name: "Apollo Central", labelSide: "left" },
+    ]
+    for (const hospital of hospitals) {
+      L.marker(hospital.position, {
+        icon: L.divIcon({
+          className: "network-map-marker-icon",
+          iconSize: [1, 1],
+          iconAnchor: [8, 12],
+          html: `<span class="network-map-hospital label-${hospital.labelSide}"><i>+</i><b>${hospital.name}</b></span>`,
+        }),
+        title: hospital.name,
+        keyboard: true,
+      })
+        .bindPopup(`<strong>${hospital.name}</strong>`)
+        .addTo(map)
+    }
+
+    L.circle([13.25, 80.55], {
+      radius: 180000,
+      color: "#ef5350",
+      weight: 2,
+      dashArray: "5 7",
+      fillColor: "#ef5350",
+      fillOpacity: 0.12,
+    })
+      .bindPopup("Cyclone Varun · 180 km disruption radius")
+      .addTo(map)
+    L.marker([13.4, 80.8], {
+      icon: L.divIcon({
+        className: "network-map-marker-icon",
+        iconSize: [1, 1],
+        iconAnchor: [8, 12],
+        html: '<span class="network-map-cyclone"><i></i><b>CYCLONE VARUN</b></span>',
+      }),
+      title: "Cyclone Varun",
+      keyboard: true,
+    })
+      .bindPopup("Cyclone Varun · Chennai Port disruption")
+      .addTo(map)
+
+    let compactViewport = initialZoom === 5
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize({ pan: false })
+      const nextCompactViewport = mapElement.current!.clientWidth < 600
+      if (nextCompactViewport !== compactViewport) {
+        compactViewport = nextCompactViewport
+        if (nextCompactViewport && map.getZoom() > 5) {
+          map.setZoom(5, { animate: true })
+        } else if (!nextCompactViewport && map.getZoom() === 5) {
+          map.setZoom(6, { animate: true })
+        }
+      }
+    })
+    resizeObserver.observe(mapElement.current)
+
+    return () => {
+      resizeObserver.disconnect()
+      map.remove()
+      mapInstance.current = null
+      tileLayers.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const map = mapInstance.current
+    const layers = tileLayers.current
+    if (!map || !layers) return
+    const nextLayer = layers[view]
+    for (const layer of Object.values(layers)) {
+      if (map.hasLayer(layer) && layer !== nextLayer) map.removeLayer(layer)
+    }
+    if (!map.hasLayer(nextLayer)) nextLayer.addTo(map)
+    setTileError(false)
+  }, [view])
+
+  return (
+    <div className="network-map">
+      <div
+        ref={mapElement}
+        className="network-map-canvas"
+        aria-label={`Interactive India medical supply network map, zoom level ${zoom}`}
+        data-zoom={zoom}
+      />
+      <div className="map-zoom" role="group" aria-label="Map zoom controls">
+        <button
+          type="button"
+          aria-label="Zoom in"
+          title="Zoom in"
+          disabled={zoom >= 18}
+          onClick={() => mapInstance.current?.zoomIn(1, { animate: true })}
+        >
+          +
+        </button>
+        <button
+          type="button"
+          aria-label="Zoom out"
+          title="Zoom out"
+          disabled={zoom <= 4}
+          onClick={() => mapInstance.current?.zoomOut(1, { animate: true })}
+        >
+          −
+        </button>
+      </div>
+      {tileError && (
+        <div className="map-tile-error" role="status">
+          Some map tiles could not load. Check your connection and try again.
+        </div>
+      )}
+      <a
+        className="map-event-card"
+        href="#disruption-monitor"
+        onClick={(event) => {
+          event.preventDefault()
+          onOpenDisruption()
+        }}
+      >
+        <span className="event-radar"><Icon name="radar" /></span>
+        <span className="map-event-copy">
+          <span>ACTIVE DISRUPTION</span>
+          <b>{mapEvent.title}</b>
+          <small>{mapEvent.meta}</small>
+        </span>
+        <Icon name="arrow" size={16} />
+      </a>
+    </div>
+  )
+}
+
+function DisruptionMonitor({
+  running,
+  runAssessment,
+  version,
+}: {
+  running: boolean
+  runAssessment: () => void
+  version: number
+}) {
+  const [data, setData] = useState<DisruptionDetail | null>(null)
+  const load = useCallback(() => {
+    getDisruption("INC-2026-1104-03").then(setData).catch(() => setData(null))
+  }, [])
+  useEffect(load, [load, version])
+  if (!data) return <Loading label="DISRUPTION MONITOR" />
+  const d = data.disruption
+  return (
+    <>
+      <SectionHeader
+        eyebrow="DISRUPTION MONITOR"
+        title="Disruption Intelligence"
+        description="Detect, classify and assess external threats across the medical supply network."
+      />
+      <section className="incident-hero">
+        <div className="incident-copy">
+          <div className="incident-tags">
+            <StatusPill tone="critical">{d.severity} SEVERITY</StatusPill>
+            <span className="incident-id">{d.id}</span>
+          </div>
+          <span className="panel-kicker">FEATURED INCIDENT</span>
+          <h2>{d.title}</h2>
+          <p>{d.description}</p>
+          <div className="incident-metrics">
+            <div>
+              <Icon name="clock" />
+              <span>
+                <small>Estimated duration</small>
+                <b>{d.expected_delay_hours} hours</b>
+              </span>
+            </div>
+            <div>
+              <Icon name="truck" />
+              <span>
+                <small>Affected shipments</small>
+                <b>{d.affected_shipments} active</b>
+              </span>
+            </div>
+            <div>
+              <Icon name="document" />
+              <span>
+                <small>Purchase orders</small>
+                <b>{d.affected_pos} affected</b>
+              </span>
+            </div>
+            <div>
+              <Icon name="pin" />
+              <span>
+                <small>Impact radius</small>
+                <b>{d.radius_km} km</b>
+              </span>
+            </div>
+          </div>
+          <button
+            className="button primary large"
+            onClick={runAssessment}
+            disabled={running}
+          >
+            <Icon name={running ? "sync" : "spark"} size={18} />
+            {running ? "Agents assessing network…" : "Run AI impact assessment"}
+            <Icon name="arrow" size={16} />
+          </button>
+        </div>
+        <div className="storm-visual">
+          <div className="storm-grid" />
+          <div className="storm-rings">
+            <i />
+            <i />
+            <i />
+            <span>
+              <Icon name="radar" size={25} />
+            </span>
+          </div>
+          <div className="storm-stat top">
+            <small>WIND SPEED</small>
+            <b>{d.wind_kmh} km/h</b>
+          </div>
+          <div className="storm-stat bottom">
+            <small>PORT STATUS</small>
+            <b>CLOSED</b>
+          </div>
+          <div className="storm-caption">
+            <i />
+            <span>
+              {d.source}
+              <br />
+              <b>{d.verified ? "Verified operational source" : "UNVERIFIED weather alert"}</b>
+            </span>
+          </div>
+        </div>
+      </section>
+      <section className="two-column">
+        <article className="panel timeline-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">EVENT PROGRESSION</span>
+              <h2>Disaster timeline</h2>
+            </div>
+            <StatusPill tone="live">LIVE</StatusPill>
+          </div>
+          <div className="event-timeline">
+            {data.timeline.map(({ ts, title, text, state }) => (
+              <div className={`timeline-event ${state}`} key={ts}>
+                <time>{ts}</time>
+                <i />
+                <div>
+                  <b>{title}</b>
+                  <p>{text}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </article>
+        <article className="panel infrastructure-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">INFRASTRUCTURE IMPACT</span>
+              <h2>Transport network status</h2>
+            </div>
+          </div>
+          <div className="infra-list">
+            {data.infrastructure.map(({ label, status, tone, icon }) => (
+              <div key={label}>
+                <span className={`infra-icon ${tone}`}>
+                  <Icon name={icon as IconName} size={17} />
+                </span>
+                <b>{label}</b>
+                <StatusPill tone={tone}>{status}</StatusPill>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+    </>
+  )
+}
+
+function ShipmentIntelligence({
+  selectShipment,
+  version,
+}: {
+  selectShipment: (shipment: ShipmentRow) => void
+  version: number
+}) {
+  const [data, setData] = useState<ShipmentsData | null>(null)
+  const [query, setQuery] = useState("")
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filters, setFilters] = useState<ShipmentFilters>(emptyShipmentFilters)
+  const [draftFilters, setDraftFilters] = useState<ShipmentFilters>(emptyShipmentFilters)
+  useEffect(() => {
+    getShipments().then(setData).catch(() => setData(null))
+  }, [version])
+  if (!data) return <Loading label="SHIPMENT INTELLIGENCE" />
+  const q = query.trim().toLowerCase()
+  const activeFilterCount = countShipmentFilters(filters)
+  const origins = [...new Set(data.shipments.map((shipment) => shipment.origin))].sort()
+  const destinations = [...new Set(data.shipments.map((shipment) => shipment.destination))].sort()
+  const statuses = [...new Set(data.shipments.map((shipment) => shipment.status))].sort()
+  const risks = [...new Set(data.shipments.map((shipment) => shipment.risk))].sort()
+  const visible = data.shipments.filter((shipment) => {
+    const matchesSearch = !q || [
+      shipment.id,
+      shipment.medicine,
+      shipment.destination,
+      shipment.origin,
+      shipment.batch,
+    ].join(" ").toLowerCase().includes(q)
+    const temperature = Number.parseFloat(shipment.temp)
+    const matchesTemperature = (
+      (!filters.tempMin || (Number.isFinite(temperature) && temperature >= Number(filters.tempMin))) &&
+      (!filters.tempMax || (Number.isFinite(temperature) && temperature <= Number(filters.tempMax)))
+    )
+    return matchesSearch &&
+      shipment.id.toLowerCase().includes(filters.shipmentId.trim().toLowerCase()) &&
+      (!filters.origin || shipment.origin === filters.origin) &&
+      (!filters.destination || shipment.destination === filters.destination) &&
+      (!filters.status || shipment.status === filters.status) &&
+      (!filters.risk || shipment.risk === filters.risk) &&
+      (!filters.disruption || (filters.disruption === "affected"
+        ? shipment.status === "Disrupted"
+        : shipment.status !== "Disrupted")) &&
+      matchesTemperature
+  })
+  return (
+    <>
+      <SectionHeader
+        eyebrow="SHIPMENT INTELLIGENCE"
+        title="Shipment Intelligence"
+        description="Live journey, condition and disruption visibility for every critical medical consignment."
+        actions={
+          <>
+            <div className="shipment-filter-wrap">
+              <button
+                className="button secondary"
+                type="button"
+                aria-expanded={filtersOpen}
+                aria-controls="shipment-filter-panel"
+                onClick={() => {
+                  setDraftFilters(filters)
+                  setFiltersOpen((open) => !open)
+                }}
+              >
+                <Icon name="filter" size={16} />
+                Filters
+                {activeFilterCount > 0 && (
+                  <span className="filter-count">{activeFilterCount}</span>
+                )}
+              </button>
+              {filtersOpen && (
+                <div
+                  className="shipment-filter-panel"
+                  id="shipment-filter-panel"
+                  role="dialog"
+                  aria-label="Filter shipments"
+                >
+                  <div className="shipment-filter-heading">
+                    <div>
+                      <b>Filter shipments</b>
+                      <small>Combine criteria to narrow the shipment list.</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="shipment-filter-close"
+                      aria-label="Close filters"
+                      onClick={() => setFiltersOpen(false)}
+                    >
+                      <Icon name="close" size={16} />
+                    </button>
+                  </div>
+                  <div className="shipment-filter-fields">
+                    <label>
+                      Shipment ID
+                      <input
+                        value={draftFilters.shipmentId}
+                        placeholder="Search shipment ID"
+                        onChange={(event) => setDraftFilters({ ...draftFilters, shipmentId: event.target.value })}
+                      />
+                    </label>
+                    <label>
+                      Origin
+                      <select
+                        value={draftFilters.origin}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, origin: event.target.value })}
+                      >
+                        <option value="">All origins</option>
+                        {origins.map((origin) => <option key={origin}>{origin}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Destination
+                      <select
+                        value={draftFilters.destination}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, destination: event.target.value })}
+                      >
+                        <option value="">All destinations</option>
+                        {destinations.map((destination) => <option key={destination}>{destination}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Shipment status
+                      <select
+                        value={draftFilters.status}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, status: event.target.value })}
+                      >
+                        <option value="">All statuses</option>
+                        {statuses.map((status) => <option key={status}>{status}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Risk level
+                      <select
+                        value={draftFilters.risk}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, risk: event.target.value })}
+                      >
+                        <option value="">All risk levels</option>
+                        {risks.map((risk) => <option key={risk}>{risk}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Disruption status
+                      <select
+                        value={draftFilters.disruption}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, disruption: event.target.value as ShipmentFilters["disruption"] })}
+                      >
+                        <option value="">All shipments</option>
+                        <option value="affected">Affected by disruption</option>
+                        <option value="unaffected">Not affected</option>
+                      </select>
+                    </label>
+                    <fieldset className="shipment-temperature-filter">
+                      <legend>Temperature range (°C)</legend>
+                      <label>
+                        <span className="sr-only">Minimum temperature in Celsius</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={draftFilters.tempMin}
+                          placeholder="Min"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, tempMin: event.target.value })}
+                        />
+                      </label>
+                      <span>to</span>
+                      <label>
+                        <span className="sr-only">Maximum temperature in Celsius</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={draftFilters.tempMax}
+                          placeholder="Max"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, tempMax: event.target.value })}
+                        />
+                      </label>
+                    </fieldset>
+                  </div>
+                  <div className="shipment-filter-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        setFilters(emptyShipmentFilters)
+                        setDraftFilters(emptyShipmentFilters)
+                      }}
+                    >
+                      Clear all
+                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => setFiltersOpen(false)}
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        className="button primary"
+                        onClick={() => {
+                          setFilters(draftFilters)
+                          setFiltersOpen(false)
+                        }}
+                      >
+                        Apply filters
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <button className="button secondary" onClick={() => downloadJson("supplyshield-shipments.json", data.shipments)}>
+              <Icon name="download" size={16} />
+              Export
+            </button>
+          </>
+        }
+      />
+      <section className="sub-kpis">
+        {data.kpis.map(({ value, label, icon }) => (
+          <div key={label}>
+            <span>
+              <Icon name={icon as IconName} size={17} />
+            </span>
+            <b>{value}</b>
+            <small>{label}</small>
+          </div>
+        ))}
+      </section>
+      <section className="panel data-panel">
+        <div className="table-toolbar">
+          <div className="table-search">
+            <Icon name="search" size={16} />
+            <input
+              placeholder="Search shipment, medicine or destination"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <div>
+            <StatusPill tone="critical">{data.criticalCount} CRITICAL</StatusPill>
+            <span className="result-count">
+              Showing {visible.length} of {data.totalInTransit} shipments
+            </span>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Shipment</th>
+                <th>Medicine / batch</th>
+                <th>Journey</th>
+                <th>Current route</th>
+                <th>ETA</th>
+                <th>Temperature</th>
+                <th>Status</th>
+                <th>Risk</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {visible.length === 0 ? (
+                <tr>
+                  <td className="shipment-empty-state" colSpan={9} role="status">
+                    No shipments match the selected filters.
+                  </td>
+                </tr>
+              ) : visible.map((shipment) => (
+                <tr key={shipment.id} onClick={() => selectShipment(shipment)}>
+                  <td>
+                    <b className="shipment-id">{shipment.id}</b>
+                  </td>
+                  <td>
+                    <div className="medicine-cell">
+                      <span>
+                        <Icon name="medicine" size={16} />
+                      </span>
+                      <div>
+                        <b>{shipment.medicine}</b>
+                        <small>{shipment.batch}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="journey">
+                      <span>{shipment.origin}</span>
+                      <i>
+                        <Icon name="arrow" size={12} />
+                      </i>
+                      <span>{shipment.destination}</span>
+                    </div>
+                  </td>
+                  <td>{shipment.route}</td>
+                  <td
+                    className={
+                      shipment.eta.includes("delayed") ? "red-text" : ""
+                    }
+                  >
+                    {shipment.eta}
+                  </td>
+                  <td>
+                    <span className="temp-reading">
+                      <i />
+                      {shipment.temp}
+                    </span>
+                  </td>
+                  <td>
+                    <StatusPill
+                      tone={
+                        shipment.status === "Disrupted"
+                          ? "critical"
+                          : shipment.status === "Monitoring"
+                            ? "warning"
+                            : "success"
+                      }
+                    >
+                      {shipment.status}
+                    </StatusPill>
+                  </td>
+                  <td>
+                    <span className={`risk-tag ${shipment.risk.toLowerCase()}`}>
+                      {shipment.risk}
+                    </span>
+                  </td>
+                  <td>
+                    <button
+                      className="row-open"
+                      aria-label={`Open ${shipment.id}`}
+                    >
+                      <Icon name="chevron" size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  )
+}
+
+interface ShipmentFilters {
+  shipmentId: string
+  origin: string
+  destination: string
+  status: string
+  risk: string
+  disruption: "" | "affected" | "unaffected"
+  tempMin: string
+  tempMax: string
+}
+
+const emptyShipmentFilters: ShipmentFilters = {
+  shipmentId: "",
+  origin: "",
+  destination: "",
+  status: "",
+  risk: "",
+  disruption: "",
+  tempMin: "",
+  tempMax: "",
+}
+
+function countShipmentFilters(filters: ShipmentFilters) {
+  return [
+    filters.shipmentId.trim(),
+    filters.origin,
+    filters.destination,
+    filters.status,
+    filters.risk,
+    filters.disruption,
+    filters.tempMin || filters.tempMax,
+  ].filter(Boolean).length
+}
+
+function ShipmentDrawer({
+  shipment,
+  close,
+  navigate,
+}: {
+  shipment: ShipmentRow
+  close: () => void
+  navigate: (screen: Screen) => void
+}) {
+  const [note, setNote] = useState("")
+  const [compliant, setCompliant] = useState(true)
+  useEffect(() => {
+    getShipment(shipment.id)
+      .then((d) => {
+        setNote(d.recoveryNote)
+        setCompliant(d.tempCompliance.compliant)
+      })
+      .catch(() => setNote(""))
+  }, [shipment.id])
+  return (
+    <div className="drawer-layer" onMouseDown={close}>
+      <aside
+        className="shipment-drawer"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="drawer-header">
+          <div>
+            <span className="panel-kicker">SHIPMENT DETAIL</span>
+            <h2>{shipment.id}</h2>
+          </div>
+          <button onClick={close}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="drawer-hero">
+          <div className="medicine-badge">
+            <Icon name="medicine" size={22} />
+          </div>
+          <div>
+            <b>{shipment.medicine}</b>
+            <span>Batch {shipment.batch}</span>
+          </div>
+          <span className={`risk-tag ${shipment.risk.toLowerCase()}`}>
+            {shipment.risk} risk
+          </span>
+        </div>
+        <div className="route-card">
+          <div>
+            <i className="origin-dot" />
+            <span>
+              <small>ORIGIN</small>
+              <b>{shipment.origin}</b>
+            </span>
+          </div>
+          <div className="route-path">
+            <i />
+            <span>
+              <Icon name="truck" size={15} />
+            </span>
+          </div>
+          <div>
+            <i className="destination-dot" />
+            <span>
+              <small>DESTINATION</small>
+              <b>{shipment.destination}</b>
+            </span>
+          </div>
+        </div>
+        <div className="detail-grid">
+          <div>
+            <small>Purchase order</small>
+            <b>{shipment.po}</b>
+          </div>
+          <div>
+            <small>Current ETA</small>
+            <b className="red-text">{shipment.eta}</b>
+          </div>
+          <div>
+            <small>Current route</small>
+            <b>{shipment.route}</b>
+          </div>
+          <div>
+            <small>Temperature</small>
+            <b>{shipment.temp}</b>
+          </div>
+        </div>
+        <div className="temperature-card">
+          <div>
+            <span>
+              <Icon name="temperature" size={17} />
+              Temperature history
+            </span>
+            <StatusPill tone={compliant ? "success" : "critical"}>
+              {compliant ? "COMPLIANT" : "EXCURSION"}
+            </StatusPill>
+          </div>
+          <div className="temp-chart">
+            <svg viewBox="0 0 340 100">
+              <path className="safe-zone" d="M0 28H340V78H0z" />
+              <path className="grid-line" d="M0 28h340M0 53h340M0 78h340" />
+              <path
+                className="temp-line"
+                d="M5 59 C45 56 58 58 85 52 S125 49 150 56 205 44 235 54 285 58 335 53"
+              />
+            </svg>
+            <span className="limit high">8°C</span>
+            <span className="limit low">2°C</span>
+          </div>
+        </div>
+        <div className="drawer-note">
+          <Icon name="spark" size={17} />
+          <p>
+            <b>SupplyShield intelligence</b>
+            {note ||
+              "This shipment is included in recovery scenario B. Transfer stock is available in Bengaluru while the original consignment remains protected at Chennai."}
+          </p>
+        </div>
+        <button
+          className="button primary full"
+          onClick={() => {
+            close()
+            navigate("AI Recovery Planning")
+          }}
+        >
+          Open recovery scenario <Icon name="arrow" size={15} />
+        </button>
+      </aside>
+    </div>
+  )
+}
+
+function InventoryRisk({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+  const [data, setData] = useState<InventoryData | null>(null)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const [filters, setFilters] = useState<InventoryFilters>(emptyInventoryFilters)
+  const [draftFilters, setDraftFilters] = useState<InventoryFilters>(emptyInventoryFilters)
+  const filterButtonRef = useRef<HTMLButtonElement>(null)
+  const filterPanelRef = useRef<HTMLDivElement>(null)
+  const [filterPanelPosition, setFilterPanelPosition] = useState({ top: 12, left: 12 })
+  useEffect(() => {
+    getInventory().then(setData).catch(() => setData(null))
+  }, [version])
+  useEffect(() => {
+    if (!filtersOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [filtersOpen])
+  useLayoutEffect(() => {
+    if (!filtersOpen) return
+    const button = filterButtonRef.current
+    const panel = filterPanelRef.current
+    if (!button || !panel) return
+    const positionPanel = () => {
+      const anchor = button.getBoundingClientRect()
+      const panelBounds = panel.getBoundingClientRect()
+      const margin = 12
+      if (window.innerWidth <= 600) {
+        setFilterPanelPosition({
+          top: Math.max(margin, (window.innerHeight - panelBounds.height) / 2),
+          left: Math.max(margin, (window.innerWidth - panelBounds.width) / 2),
+        })
+        return
+      }
+      setFilterPanelPosition({
+        top: Math.max(margin, Math.min(anchor.bottom + 8, window.innerHeight - panelBounds.height - margin)),
+        left: Math.max(margin, Math.min(anchor.right - panelBounds.width, window.innerWidth - panelBounds.width - margin)),
+      })
+    }
+    positionPanel()
+    window.addEventListener("resize", positionPanel)
+    return () => window.removeEventListener("resize", positionPanel)
+  }, [filtersOpen])
+  if (!data) return <Loading label="INVENTORY INTELLIGENCE" />
+  const c = data.critical
+  const activeFilterCount = countInventoryFilters(filters)
+  const facilities = [...new Set(data.rows.map((row) => row.facility))].sort()
+  const medicines = [...new Set(data.rows.map((row) => row.medicine))].sort()
+  const riskStates = [...new Set(data.rows.map((row) => row.risk))].sort()
+  const replenishments = [...new Set(data.rows.map((row) => row.replenishment))].sort()
+  const visibleRows = data.rows.filter((row) => {
+    const available = parseInventoryNumber(row.available)
+    const cover = parseInventoryNumber(row.cover)
+    return (!filters.facility || row.facility === filters.facility) &&
+      (!filters.medicine || row.medicine === filters.medicine) &&
+      (!filters.risk || row.risk === filters.risk) &&
+      (!filters.replenishment || row.replenishment === filters.replenishment) &&
+      (!filters.availableMin || (available !== null && available >= Number(filters.availableMin))) &&
+      (!filters.availableMax || (available !== null && available <= Number(filters.availableMax))) &&
+      (!filters.coverMin || (cover !== null && cover >= Number(filters.coverMin))) &&
+      (!filters.coverMax || (cover !== null && cover <= Number(filters.coverMax)))
+  })
+  return (
+    <>
+      <SectionHeader
+        eyebrow="INVENTORY INTELLIGENCE"
+        title="Medicine Availability Intelligence"
+        description="Predict stockouts before they occur and coordinate inventory across hospitals and warehouses."
+      />
+      <section className="inventory-layout">
+        <article className="critical-stock-card">
+          <div className="critical-glow" />
+          <div className="critical-stock-header">
+            <div>
+              <StatusPill tone="critical">CRITICAL STOCKOUT RISK</StatusPill>
+              <h2>
+                {c.medicine} · {c.facility}
+              </h2>
+              <p>
+                Projected inventory exhaustion occurs {c.gapHours} hours before
+                replenishment arrives.
+              </p>
+            </div>
+            <span className="medicine-large">
+              <Icon name="medicine" size={29} />
+            </span>
+          </div>
+          <div className="stock-numbers">
+            <div>
+              <small>Available stock</small>
+              <b>{c.available}</b>
+              <span>{c.unit}</span>
+            </div>
+            <div>
+              <small>Daily demand</small>
+              <b>{c.demandPerDay}</b>
+              <span>{c.unit} / day</span>
+            </div>
+            <div>
+              <small>Stock cover</small>
+              <b className="critical-value">{c.coverDays}</b>
+              <span>days remaining</span>
+            </div>
+            <div>
+              <small>Replenishment delay</small>
+              <b className="critical-value">{c.delayHours}</b>
+              <span>hours</span>
+            </div>
+          </div>
+          <div className="stock-forecast">
+            <div className="forecast-labels">
+              <span>
+                NOW · {c.available} {c.unit.toUpperCase()}
+              </span>
+              <span className="stockout-label">STOCKOUT · {c.stockoutHours}H</span>
+              <span>REPLENISHMENT · {c.delayHours}H</span>
+            </div>
+            <div className="forecast-track">
+              <div className="stock-fill" />
+              <div className="danger-gap" />
+              <i className="now-pin" />
+              <i className="stockout-pin" />
+              <i className="replenish-pin" />
+            </div>
+            <div className="forecast-axis">
+              <span>0h</span>
+              <span>12h</span>
+              <span>24h</span>
+              <span>36h</span>
+              <span>48h</span>
+            </div>
+          </div>
+          <div className="critical-action">
+            <div>
+              <Icon name="alert" size={18} />
+              <p>
+                <b>Action required within 6 hours</b>Transfer {c.transferQty}{" "}
+                {c.unit} from {c.donorFacility} to restore {c.restoredCoverDays}{" "}
+                days of cover.
+              </p>
+            </div>
+            <button
+              className="button light"
+              onClick={() => navigate("AI Recovery Planning")}
+            >
+              Review recovery plan <Icon name="arrow" size={15} />
+            </button>
+          </div>
+        </article>
+        <article className="panel priority-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">CARE CRITICALITY</span>
+              <h2>Hospital priority</h2>
+            </div>
+          </div>
+          {data.priorities.map(({ name, ward, priority, tone }) => (
+            <div className="priority-row" key={name}>
+              <span className={`priority-badge ${tone}`}>{priority}</span>
+              <div>
+                <b>{name}</b>
+                <small>{ward}</small>
+              </div>
+              <div className="priority-bars">
+                <i />
+                <i />
+                <i />
+                <i />
+              </div>
+            </div>
+          ))}
+        </article>
+      </section>
+      <section className="panel inventory-table">
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">NETWORK INVENTORY</span>
+            <h2>Stock-cover overview</h2>
+          </div>
+          <div className="inventory-table-actions">
+            <div className="shipment-filter-wrap">
+              <button
+                ref={filterButtonRef}
+                type="button"
+                className="button secondary"
+                aria-expanded={filtersOpen}
+                aria-controls="inventory-filter-panel"
+                onClick={() => {
+                  setDraftFilters(filters)
+                  setFiltersOpen((open) => !open)
+                }}
+              >
+                <Icon name="filter" size={14} />
+                Filter medicines
+                {activeFilterCount > 0 && (
+                  <span className="filter-count">{activeFilterCount}</span>
+                )}
+              </button>
+              {filtersOpen && (
+                <div
+                  ref={filterPanelRef}
+                  className="shipment-filter-panel inventory-filter-panel"
+                  id="inventory-filter-panel"
+                  role="dialog"
+                  aria-label="Filter inventory"
+                  style={{ top: filterPanelPosition.top, left: filterPanelPosition.left }}
+                >
+                  <div className="shipment-filter-heading">
+                    <div>
+                      <b>Filter inventory</b>
+                      <small>Combine criteria to narrow stock records.</small>
+                    </div>
+                    <button
+                      type="button"
+                      className="shipment-filter-close"
+                      aria-label="Close inventory filters"
+                      onClick={() => setFiltersOpen(false)}
+                    >
+                      <Icon name="close" size={16} />
+                    </button>
+                  </div>
+                  <div className="shipment-filter-fields inventory-filter-scroll">
+                    <label>
+                      Facility
+                      <select
+                        value={draftFilters.facility}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, facility: event.target.value })}
+                      >
+                        <option value="">All facilities</option>
+                        {facilities.map((facility) => <option key={facility}>{facility}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Medicine
+                      <select
+                        value={draftFilters.medicine}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, medicine: event.target.value })}
+                      >
+                        <option value="">All medicines</option>
+                        {medicines.map((medicine) => <option key={medicine}>{medicine}</option>)}
+                      </select>
+                    </label>
+                    <fieldset className="shipment-temperature-filter">
+                      <legend>Available stock quantity</legend>
+                      <label>
+                        <span className="sr-only">Minimum available stock quantity</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={draftFilters.availableMin}
+                          placeholder="Min"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, availableMin: event.target.value })}
+                        />
+                      </label>
+                      <span>to</span>
+                      <label>
+                        <span className="sr-only">Maximum available stock quantity</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={draftFilters.availableMax}
+                          placeholder="Max"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, availableMax: event.target.value })}
+                        />
+                      </label>
+                    </fieldset>
+                    <fieldset className="shipment-temperature-filter">
+                      <legend>Stock cover (days)</legend>
+                      <label>
+                        <span className="sr-only">Minimum stock cover in days</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={draftFilters.coverMin}
+                          placeholder="Min"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, coverMin: event.target.value })}
+                        />
+                      </label>
+                      <span>to</span>
+                      <label>
+                        <span className="sr-only">Maximum stock cover in days</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.1"
+                          value={draftFilters.coverMax}
+                          placeholder="Max"
+                          onChange={(event) => setDraftFilters({ ...draftFilters, coverMax: event.target.value })}
+                        />
+                      </label>
+                    </fieldset>
+                    <label>
+                      Risk state
+                      <select
+                        value={draftFilters.risk}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, risk: event.target.value })}
+                      >
+                        <option value="">All risk states</option>
+                        {riskStates.map((risk) => <option key={risk}>{risk}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Replenishment
+                      <select
+                        value={draftFilters.replenishment}
+                        onChange={(event) => setDraftFilters({ ...draftFilters, replenishment: event.target.value })}
+                      >
+                        <option value="">All replenishment statuses</option>
+                        {replenishments.map((replenishment) => (
+                          <option key={replenishment}>{replenishment}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  <div className="shipment-filter-actions">
+                    <button
+                      type="button"
+                      className="text-button"
+                      onClick={() => {
+                        setFilters(emptyInventoryFilters)
+                        setDraftFilters(emptyInventoryFilters)
+                      }}
+                    >
+                      Clear all
+                    </button>
+                    <div>
+                      <button
+                        type="button"
+                        className="button secondary"
+                        onClick={() => setFiltersOpen(false)}
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        className="button primary"
+                        onClick={() => {
+                          setFilters(draftFilters)
+                          setFiltersOpen(false)
+                        }}
+                      >
+                        Apply filters
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="button secondary"
+              onClick={() => downloadJson("supplyshield-inventory.json", data.rows)}
+            >
+              <Icon name="download" size={14} />
+              Export
+            </button>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Facility</th>
+                <th>Medicine</th>
+                <th>Available</th>
+                <th>Demand</th>
+                <th>Stock cover</th>
+                <th>Replenishment</th>
+                <th>Risk state</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.length === 0 ? (
+                <tr>
+                  <td className="shipment-empty-state" colSpan={7} role="status">
+                    No inventory records match the selected filters.
+                  </td>
+                </tr>
+              ) : visibleRows.map((row) => (
+                <tr key={row.facility}>
+                  <td>
+                    <b>{row.facility}</b>
+                  </td>
+                  <td>
+                    <b>{row.medicine}</b>
+                  </td>
+                  <td>{row.available}</td>
+                  <td>{row.demand}</td>
+                  <td>{row.cover}</td>
+                  <td>{row.replenishment}</td>
+                  <td>
+                    <StatusPill
+                      tone={
+                        row.risk === "Critical"
+                          ? "critical"
+                          : row.risk === "High"
+                            ? "warning"
+                            : "success"
+                      }
+                    >
+                      {row.risk}
+                    </StatusPill>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
+  )
+}
+
+interface InventoryFilters {
+  facility: string
+  medicine: string
+  availableMin: string
+  availableMax: string
+  coverMin: string
+  coverMax: string
+  risk: string
+  replenishment: string
+}
+
+const emptyInventoryFilters: InventoryFilters = {
+  facility: "",
+  medicine: "",
+  availableMin: "",
+  availableMax: "",
+  coverMin: "",
+  coverMax: "",
+  risk: "",
+  replenishment: "",
+}
+
+function parseInventoryNumber(value: string) {
+  const parsed = Number.parseFloat(value.replace(/,/g, ""))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function countInventoryFilters(filters: InventoryFilters) {
+  return [
+    filters.facility,
+    filters.medicine,
+    filters.availableMin || filters.availableMax,
+    filters.coverMin || filters.coverMax,
+    filters.risk,
+    filters.replenishment,
+  ].filter(Boolean).length
+}
+
+function RecoveryPlanning({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+  const [data, setData] = useState<PlanData | null>(null)
+  useEffect(() => {
+    getCurrentPlan().then(setData).catch(() => setData(null))
+  }, [version])
+
+  if (!data) return <Loading label="AGENTIC RECOVERY" />
+  const recommended = data.recommended
+  const ribbon = data.ribbon
+
+  const toneOf = (o: PlanData["options"][number]) =>
+    o.recommended ? "recommended" : !o.eligible ? "rejected" : "high-risk"
+  const statusOf = (o: PlanData["options"][number]) =>
+    o.recommended ? "RECOMMENDED" : !o.eligible ? "REJECTED" : "HIGH RISK"
+  const riskOf = (o: PlanData["options"][number]) =>
+    o.recommended ? "Lowest risk" : o.code === "OPT-C" ? "Stockout likely" : "Low service risk"
+  const barsOf = (o: PlanData["options"][number]) => [
+    o.scores.speed ?? 0,
+    o.scores.cost ?? 0,
+    o.scores.protection ?? 0,
+    o.scores.compliance ?? 0,
+  ]
+  const comparisonTone: Record<string, string> = { "OPT-A": "red", "OPT-B": "cyan", "OPT-C": "amber" }
+
+  return (
+    <>
+      <SectionHeader
+        eyebrow="AGENTIC RECOVERY"
+        title="AI Recovery Command"
+        description="Multi-agent analysis of recovery strategies, operational trade-offs and pharmaceutical constraints."
+        actions={<StatusPill tone="live">ANALYSIS COMPLETE</StatusPill>}
+      />
+      <section className="workflow-ribbon">
+        {ribbon.map((agent, index) => (
+          <div className={`workflow-stage ${agent.warning ? "warning" : ""}`} key={agent.name}>
+            <span>
+              <Icon name={agent.icon as IconName} size={17} />
+            </span>
+            <div>
+              <small>0{index + 1}</small>
+              <b>{agent.name.replace(" Agent", "")}</b>
+              <p>{agent.status}</p>
+            </div>
+            {index < ribbon.length - 1 && (
+              <i className="stage-connector">
+                <Icon name="arrow" size={13} />
+              </i>
+            )}
+          </div>
+        ))}
+      </section>
+      {recommended && (
+        <section className="recommendation-banner">
+          <div className="recommendation-mark">
+            <Icon name="spark" size={25} />
+          </div>
+          <div>
+            <span>SUPPLYSHIELD RECOMMENDS</span>
+            <h2>Bengaluru stock transfer</h2>
+            <p>{recommended.reason}</p>
+          </div>
+          <div className="recommendation-score">
+            <small>RECOMMENDATION SCORE</small>
+            <b>{data.plan.score}</b>
+            <span>/100</span>
+          </div>
+          <button className="button light" onClick={() => navigate("Approval Centre")}>
+            Review for approval <Icon name="arrow" size={15} />
+          </button>
+        </section>
+      )}
+      <section className="scenario-grid">
+        {data.options.map((o) => (
+          <ScenarioCard
+            key={o.id}
+            option={o.code.replace("OPT-", "OPTION ")}
+            title={o.title}
+            status={statusOf(o)}
+            tone={toneOf(o)}
+            eta={o.eta_hours >= 48 ? "48+ hours" : `${o.eta_hours} hours`}
+            cost={`$${Number(o.cost_usd).toLocaleString("en-US")}`}
+            risk={riskOf(o)}
+            compliance={o.eligible ? "Passed" : "Failed"}
+            reason={o.reason}
+            bars={barsOf(o)}
+          />
+        ))}
+      </section>
+      <section className="panel comparison-panel">
+        <div className="panel-heading">
+          <div>
+            <span className="panel-kicker">NORMALIZED TRADE-OFF ANALYSIS</span>
+            <h2>Scenario comparison</h2>
+          </div>
+          <span className="model-note">Values computed by the scoring engine from database records</span>
+        </div>
+        <div className="comparison-chart">
+          <div className="comparison-labels">
+            <span>Speed</span>
+            <span>Cost efficiency</span>
+            <span>Service protection</span>
+            <span>Compliance</span>
+          </div>
+          {data.options.map((o) => (
+            <div className="comparison-row" key={o.id}>
+              <b>{o.code === "OPT-C" ? "Wait" : o.title}</b>
+              <div>
+                {barsOf(o).map((value, i) => (
+                  <span key={i}>
+                    <i className={comparisonTone[o.code] || "cyan"} style={{ width: `${value}%` }} />
+                    <small>{value}</small>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </>
+  )
+}
+
+function ScenarioCard({
+  option,
+  title,
+  status,
+  tone,
+  eta,
+  cost,
+  risk,
+  compliance,
+  reason,
+  bars,
+}: {
+  option: string
+  title: string
+  status: string
+  tone: string
+  eta: string
+  cost: string
+  risk: string
+  compliance: string
+  reason: string
+  bars: number[]
+}) {
+  return (
+    <article className={`scenario-card ${tone}`}>
+      <div className="scenario-top">
+        <span>{option}</span>
+        <StatusPill
+          tone={tone === "recommended" ? "success" : tone === "rejected" ? "critical" : "warning"}
+        >
+          {status}
+        </StatusPill>
+      </div>
+      <h2>{title}</h2>
+      <div className="scenario-stats">
+        <div>
+          <Icon name="clock" size={15} />
+          <span>
+            <small>ETA</small>
+            <b>{eta}</b>
+          </span>
+        </div>
+        <div>
+          <Icon name="document" size={15} />
+          <span>
+            <small>EST. COST</small>
+            <b>{cost}</b>
+          </span>
+        </div>
+      </div>
+      <div className="scenario-bars">
+        {["Speed", "Cost", "Protection", "Compliance"].map((label, index) => (
+          <div key={label}>
+            <span>{label}</span>
+            <i>
+              <b style={{ width: `${bars[index]}%` }} />
+            </i>
+          </div>
+        ))}
+      </div>
+      <div className="scenario-result">
+        <span>
+          <small>RISK</small>
+          <b>{risk}</b>
+        </span>
+        <span>
+          <small>COMPLIANCE</small>
+          <b>{compliance}</b>
+        </span>
+      </div>
+      <p>
+        <Icon
+          name={tone === "rejected" ? "close" : tone === "recommended" ? "check" : "alert"}
+          size={15}
+        />
+        {reason}
+      </p>
+    </article>
+  )
+}
+
+function Compliance({ version }: { version: number }) {
+  const [data, setData] = useState<ComplianceData | null>(null)
+  useEffect(() => {
+    getCompliance().then(setData).catch(() => setData(null))
+  }, [version])
+
+  if (!data) return <Loading label="PHARMACEUTICAL GOVERNANCE" />
+  const t = data.telemetry
+  const b = data.batchRecord
+
+  return (
+    <>
+      <SectionHeader
+        eyebrow="PHARMACEUTICAL GOVERNANCE"
+        title="Cold-Chain Safety & Compliance"
+        description="Validate temperature integrity, carrier eligibility and batch controls before any recovery action."
+      />
+      <section className="compliance-summary">
+        <div className="compliance-gauge">
+          <svg viewBox="0 0 120 70">
+            <path d="M15 60a45 45 0 0 1 90 0" />
+            <path
+              className="gauge-progress"
+              d="M15 60a45 45 0 0 1 90 0"
+              style={{ strokeDasharray: `${(data.networkCompliance / 100) * 141.4} 142` }}
+            />
+          </svg>
+          <span>
+            <b>{data.networkCompliance}%</b>
+            <small>Network compliance</small>
+          </span>
+        </div>
+        <div>
+          <span className="panel-kicker">REQUIRED STORAGE RANGE</span>
+          <b className="temp-range">
+            +{data.range.min}°C <i>to</i> +{data.range.max}°C
+          </b>
+          <p>{data.appliesTo}</p>
+        </div>
+        <div className="summary-divider" />
+        <div className="compliance-checks">
+          {data.checks.map((check) => (
+            <span key={check}>
+              <Icon name="check" size={15} />
+              {check}
+            </span>
+          ))}
+        </div>
+      </section>
+      <section className="compliance-layout">
+        <article className="panel temperature-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">LIVE SENSOR TELEMETRY</span>
+              <h2>Temperature history · {t.batch}</h2>
+            </div>
+            <StatusPill tone={t.withinRange ? "success" : "critical"}>
+              {t.withinRange ? "WITHIN RANGE" : "EXCURSION"}
+            </StatusPill>
+          </div>
+          <div className="large-temp-chart">
+            <div className="chart-y">
+              <span>10°</span>
+              <span>8°</span>
+              <span>6°</span>
+              <span>4°</span>
+              <span>2°</span>
+              <span>0°</span>
+            </div>
+            <svg viewBox="0 0 650 220" preserveAspectRatio="none">
+              <path className="compliance-zone" d="M0 45h650v130H0z" />
+              <path className="chart-grid" d="M0 45h650M0 88h650M0 131h650M0 175h650" />
+              <path
+                className="temperature-line"
+                d={telemetryPath(t.readings.map((r) => r.temp_c))}
+              />
+              <path
+                className="temperature-area"
+                d={`${telemetryPath(t.readings.map((r) => r.temp_c))}V220H0Z`}
+              />
+            </svg>
+            <div className="chart-x">
+              {t.readings.length > 0 && (
+                <>
+                  <span>{shortTime(t.readings[0].ts)}</span>
+                  <span>{shortTime(t.readings[Math.floor(t.readings.length / 4)]?.ts)}</span>
+                  <span>{shortTime(t.readings[Math.floor(t.readings.length / 2)]?.ts)}</span>
+                  <span>{shortTime(t.readings[Math.floor((t.readings.length * 3) / 4)]?.ts)}</span>
+                  <span>Now</span>
+                </>
+              )}
+            </div>
+            <div className="current-temp">
+              <i />
+              {t.current.toFixed(1)}°C
+            </div>
+          </div>
+          <div className="sensor-stats">
+            <div>
+              <small>MINIMUM</small>
+              <b>{t.min.toFixed(1)}°C</b>
+            </div>
+            <div>
+              <small>MAXIMUM</small>
+              <b>{t.max.toFixed(1)}°C</b>
+            </div>
+            <div>
+              <small>AVERAGE</small>
+              <b>{t.avg.toFixed(1)}°C</b>
+            </div>
+            <div>
+              <small>EXCURSIONS</small>
+              <b>{t.excursions}</b>
+            </div>
+          </div>
+        </article>
+        <article className="panel batch-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">PRODUCT RECORD</span>
+              <h2>Batch & certification</h2>
+            </div>
+          </div>
+          <div className="batch-hero">
+            <span>
+              <Icon name="medicine" size={24} />
+            </span>
+            <div>
+              <b>{b.name}</b>
+              <small>Batch {b.batch}</small>
+            </div>
+          </div>
+          <div className="batch-details">
+            <div>
+              <span>Manufactured</span>
+              <b>{b.manufactured}</b>
+            </div>
+            <div>
+              <span>Expiry</span>
+              <b>{b.expiry}</b>
+            </div>
+            <div>
+              <span>GDP classification</span>
+              <b>{b.gdp}</b>
+            </div>
+            <div>
+              <span>Required range</span>
+              <b>{b.range}</b>
+            </div>
+          </div>
+          <div className="certificate">
+            <Icon name="shield" size={20} />
+            <div>
+              <b>{b.valid ? "Quality record verified" : "Quality record issue"}</b>
+              <small>{b.note}</small>
+            </div>
+            <StatusPill tone={b.valid ? "success" : "critical"}>
+              {b.valid ? "VALID" : "REVIEW"}
+            </StatusPill>
+          </div>
+        </article>
+      </section>
+      <section className="validation-grid">
+        {data.validations.map((v) => (
+          <ValidationCard
+            key={v.title}
+            title={v.title}
+            status={v.status}
+            tone={v.tone}
+            checks={v.checks.map((c) => [c.label, c.pass] as [string, boolean])}
+            reason={v.reason}
+          />
+        ))}
+      </section>
+    </>
+  )
+}
+
+function telemetryPath(values: number[]) {
+  if (values.length === 0) return "M0 131"
+  const minV = 0
+  const maxV = 10
+  const step = 650 / Math.max(values.length - 1, 1)
+  const points = values.map((v, i) => {
+    const x = Math.round(i * step)
+    const y = Math.round(220 - ((Math.min(Math.max(v, minV), maxV) - minV) / (maxV - minV)) * 220)
+    return [x, y] as const
+  })
+  return points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x} ${y}`).join(" ")
+}
+
+function shortTime(ts: string | undefined) {
+  if (!ts) return ""
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ts
+  return d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
+}
+
+function ValidationCard({
+  title,
+  status,
+  tone,
+  checks,
+  reason,
+}: {
+  title: string
+  status: string
+  tone: string
+  checks: [string, boolean][]
+  reason: string
+}) {
+  return (
+    <article className={`validation-card ${tone}`}>
+      <div className="validation-header">
+        <div>
+          <span className="panel-kicker">RECOVERY OPTION</span>
+          <h2>{title}</h2>
+        </div>
+        <span className="validation-status">
+          <Icon name={tone === "passed" ? "check" : "close"} size={18} />
+          {status}
+        </span>
+      </div>
+      <div className="validation-checks">
+        {checks.map(([label, pass]) => (
+          <div key={label}>
+            <span className={pass ? "pass" : "fail"}>
+              <Icon name={pass ? "check" : "close"} size={14} />
+            </span>
+            <b>{label}</b>
+            <small>{pass ? "Verified" : "Not verified"}</small>
+          </div>
+        ))}
+      </div>
+      <p>
+        <Icon name={tone === "passed" ? "shield" : "alert"} size={16} />
+        <span>
+          <small>VALIDATION RESULT</small>
+          <b>{reason}</b>
+        </span>
+      </p>
+    </article>
+  )
+}
+
+function ApprovalCentre({
+  approval,
+  onDecision,
+  onBlocked,
+  navigate,
+  version,
+}: {
+  approval: "pending" | "approved" | "rejected"
+  onDecision: (status: "APPROVED" | "REJECTED") => void
+  onBlocked: (message: string) => void
+  navigate: (screen: Screen) => void
+  version: number
+}) {
+  const [data, setData] = useState<PlanData | null>(null)
+  const [inventory, setInventory] = useState<InventoryData | null>(null)
+  const [comment, setComment] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    getCurrentPlan().then(setData).catch(() => setData(null))
+    getInventory().then(setInventory).catch(() => setInventory(null))
+  }, [version])
+
+  if (!data) return <Loading label="HUMAN GOVERNANCE" />
+  const rec = data.recommended
+  const passedChecks = rec ? rec.checks.filter((c) => c.pass).length : 0
+  const totalChecks = rec ? rec.checks.length : 0
+
+  const decide = async (decision: "approved" | "rejected") => {
+    if (busy || approval !== "pending") return
+    setBusy(true)
+    try {
+      if (decision === "approved") {
+        await approvePlan(data.plan.id, comment)
+        onDecision("APPROVED")
+      } else {
+        await rejectPlan(data.plan.id, comment)
+        onDecision("REJECTED")
+      }
+    } catch (e) {
+      onBlocked(`Decision blocked by server-side compliance revalidation: ${(e as Error).message}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Bengaluru Warehouse"
+  const facts: [string, string, IconName][] = [
+    ["Disruption", data.disruption.title, "alert"],
+    [
+      "Medicine urgency",
+      inventory ? `Critical · stockout in ${Math.round(inventory.critical.stockoutHours)}h` : "Critical",
+      "medicine",
+    ],
+    ["Transfer quantity", rec ? `${rec.qty} insulin vials` : "—", "box"],
+    ["Donor warehouse", donorFrom, "inventory"],
+    ["Estimated delivery", rec ? `${rec.eta_hours} hours` : "—", "clock"],
+    ["Estimated cost", rec ? `$${Number(rec.cost_usd).toLocaleString("en-US")}` : "—", "document"],
+  ]
+
+  return (
+    <>
+      <SectionHeader
+        eyebrow="HUMAN GOVERNANCE"
+        title="Recovery Plan Approval"
+        description="SupplyShield recommends. An authorized planner reviews evidence and makes the final decision."
+        actions={
+          approval !== "pending" && (
+            <StatusPill tone={approval === "approved" ? "success" : "critical"}>
+              PLAN {approval.toUpperCase()}
+            </StatusPill>
+          )
+        }
+      />
+      <section className="human-control-banner">
+        <div className="human-icon">
+          <Icon name="user" size={22} />
+        </div>
+        <div>
+          <span>HUMAN-IN-THE-LOOP CONTROL</span>
+          <p>
+            AI has completed analysis and compliance validation. No downstream action occurs until
+            you authorize this recovery plan.
+          </p>
+        </div>
+        <div className="decision-progress">
+          <span className="done">AI analysis</span>
+          <i />
+          <span className={approval === "pending" ? "active" : "done"}>Human decision</span>
+          <i />
+          <span className={approval !== "pending" ? "active" : ""}>Execution</span>
+        </div>
+      </section>
+      <section className="approval-layout">
+        <article className="approval-main">
+          <div className="approval-title">
+            <div>
+              <span className="panel-kicker">RECOMMENDED RECOVERY PLAN · {data.plan.id}</span>
+              <h2>Bengaluru stock transfer</h2>
+              <p>Emergency inventory transfer to protect insulin continuity at St. Martha Hospital.</p>
+            </div>
+            <div className="score-chip">
+              <Icon name="spark" size={18} />
+              <span>
+                <small>AI SCORE</small>
+                <b>{data.plan.score}/100</b>
+              </span>
+            </div>
+          </div>
+          <div className="approval-facts">
+            {facts.map(([label, value, icon]) => (
+              <div key={label}>
+                <span>
+                  <Icon name={icon} size={17} />
+                </span>
+                <div>
+                  <small>{label}</small>
+                  <b>{value}</b>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="explanation-block">
+            <div className="explanation-head">
+              <span>
+                <Icon name="spark" size={17} />
+              </span>
+              <div>
+                <b>SupplyShield recommendation explanation</b>
+                <small>{data.plan.explanation_source}</small>
+              </div>
+            </div>
+            <p>{data.plan.explanation}</p>
+            <div className="evidence-chips">
+              {rec &&
+                rec.checks
+                  .filter((c) => c.pass)
+                  .map((c) => <span key={c.label}>{c.label}</span>)}
+            </div>
+          </div>
+          <label className="comments-field">
+            Planner comments <span>Optional</span>
+            <textarea
+              placeholder="Add decision context for the immutable audit trail..."
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              disabled={approval !== "pending"}
+            />
+          </label>
+          <div className="approval-actions">
+            <button
+              className="button reject"
+              disabled={approval !== "pending" || busy}
+              onClick={() => decide("rejected")}
+            >
+              <Icon name="close" size={17} />
+              Reject plan
+            </button>
+            <button
+              className="button approve"
+              disabled={approval !== "pending" || busy}
+              onClick={() => decide("approved")}
+            >
+              <Icon name="check" size={17} />
+              Approve recovery plan
+            </button>
+          </div>
+          {approval !== "pending" && (
+            <div className={`decision-confirmation ${approval}`}>
+              <Icon name={approval === "approved" ? "check" : "close"} size={20} />
+              <div>
+                <b>Recovery plan {approval}</b>
+                <span>
+                  {approval === "approved"
+                    ? "Decision recorded. Simulated execution is ready to begin."
+                    : "Decision recorded. Scenario returned to the AI Recovery Command."}
+                </span>
+              </div>
+              <button onClick={() => navigate("Execution & Audit Trail")}>
+                View audit trail <Icon name="arrow" size={14} />
+              </button>
+            </div>
+          )}
+        </article>
+        <aside className="approval-evidence">
+          <div className="evidence-header">
+            <span className="panel-kicker">VALIDATION EVIDENCE</span>
+            <h2>Decision assurance</h2>
+          </div>
+          <div className="assurance-score">
+            <div className="assurance-ring">
+              <span>
+                {passedChecks}/{totalChecks}
+              </span>
+            </div>
+            <div>
+              <b>Mandatory controls passed</b>
+              <small>
+                Compliance Agent · Run {data.plan.run_id}
+              </small>
+            </div>
+          </div>
+          <div className="evidence-list">
+            {rec &&
+              rec.checks.map((c) => (
+                <div key={c.label}>
+                  <span>
+                    <Icon name={c.pass ? "check" : "close"} size={13} />
+                  </span>
+                  <div>
+                    <small>{c.label}</small>
+                    <b>{c.note}</b>
+                  </div>
+                </div>
+              ))}
+          </div>
+          <div className="assumptions">
+            <b>Key assumptions</b>
+            <ul>
+              <li>Departure within 90 minutes</li>
+              <li>NH48 remains operational</li>
+              <li>Demand remains at 100 vials/day</li>
+            </ul>
+          </div>
+          <button className="text-button full-width" onClick={() => navigate("Cold-Chain Compliance")}>
+            Inspect calculation details <Icon name="arrow" size={14} />
+          </button>
+        </aside>
+      </section>
+    </>
+  )
+}
+
+function AuditTrail({
+  approval,
+  version,
+  notify,
+}: {
+  approval: "pending" | "approved" | "rejected"
+  version: number
+  notify: (message: string) => void
+}) {
+  const [data, setData] = useState<AuditData | null>(null)
+  useEffect(() => {
+    getAudit().then(setData).catch(() => setData(null))
+  }, [version, approval])
+
+  if (!data) return <Loading label="TRACEABILITY" />
+  const approved = approval === "approved"
+  const plan = data.plan
+
+  return (
+    <>
+      <SectionHeader
+        eyebrow="TRACEABILITY"
+        title="Execution & Decision History"
+        description="A complete, explainable record from disruption detection through human authorization."
+        actions={
+          <button className="button secondary" onClick={() => downloadJson("supplyshield-audit-trail.json", data)}>
+            <Icon name="download" size={16} />
+            Export audit package
+          </button>
+        }
+      />
+      <section className="audit-summary">
+        <div>
+          <span className={`execution-state ${approved ? "success" : "pending"}`}>
+            <Icon name={approved ? "check" : "clock"} size={22} />
+          </span>
+          <div>
+            <small>RECOVERY PLAN {plan?.id ?? "—"}</small>
+            <h2>{approved ? "Approved · simulated execution ready" : "Awaiting planner authorization"}</h2>
+            <p>
+              {approved && plan
+                ? `${plan.recommendedTitle ?? "Stock transfer"} · ${plan.qty} insulin vials · ${plan.destination}`
+                : "No downstream action has been initiated."}
+            </p>
+          </div>
+        </div>
+        <div className="audit-meta">
+          <span>
+            <small>Planner</small>
+            <b>{approved && plan?.planner ? plan.planner : "—"}</b>
+          </span>
+          <span>
+            <small>Decision timestamp</small>
+            <b>{approved && plan?.decidedAt ? formatIst(plan.decidedAt) : "Pending"}</b>
+          </span>
+          <span>
+            <small>Correlation ID</small>
+            <b>{plan?.correlationId ?? "—"}</b>
+          </span>
+        </div>
+      </section>
+      {data.execution.simulated && (
+        <div className="simulation-notice">
+          <Icon name="alert" size={17} />
+          <p>
+            <b>SIMULATED EXECUTION</b>No real SAP S/4HANA inventory or logistics transaction has been
+            performed. This prototype records the intended actions and trace evidence only.
+          </p>
+        </div>
+      )}
+      <section className="audit-layout">
+        <article className="panel audit-timeline-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">CHRONOLOGICAL TRACE</span>
+              <h2>Decision history</h2>
+            </div>
+            <StatusPill tone="live">IMMUTABLE LOG</StatusPill>
+          </div>
+          <div className="audit-timeline">
+            {data.events.map((event, index) => (
+              <div className={`audit-event ${event.state}`} key={`${event.title}-${index}`}>
+                <time>{event.time}</time>
+                <span className="audit-icon">
+                  <Icon name={event.icon as IconName} size={16} />
+                </span>
+                <div>
+                  <div>
+                    <b>{event.title}</b>
+                    <span>{event.actor}</span>
+                  </div>
+                  <p>{event.text}</p>
+                </div>
+                <button
+                  aria-label="Inspect event"
+                  onClick={() =>
+                    notify(event.hash ? `SHA-256 ${event.hash.slice(0, 20)}…` : "No hash recorded for this event.")
+                  }
+                >
+                  <Icon name="chevron" size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </article>
+        <aside className="audit-side">
+          <article className="panel execution-card">
+            <div className="panel-heading">
+              <div>
+                <span className="panel-kicker">EXECUTION REFERENCES</span>
+                <h2>Planned actions</h2>
+              </div>
+            </div>
+            {[
+              ["Transfer reference", approved ? data.execution.transferReference : "Pending"],
+              ["Source storage", data.execution.sourceStorage],
+              ["Destination", data.execution.destination],
+              ["Reefer vehicle", data.execution.reefer],
+              ["Expected arrival", approved ? data.execution.expectedArrival : `T+${data.execution.expectedArrival}`],
+            ].map(([label, value]) => (
+              <div className="reference-row" key={label}>
+                <span>{label}</span>
+                <b>{value}</b>
+              </div>
+            ))}
+          </article>
+          <article className="panel integrity-card">
+            <Icon name="shield" size={25} />
+            <h2>{data.integrity.valid ? "Audit integrity verified" : "Audit integrity check failed"}</h2>
+            <p>
+              {data.integrity.valid
+                ? "All agent outputs, rule checks and human actions share one correlation ID and are persisted with hash-chained timestamps."
+                : "The hash chain could not be verified. Investigate the audit log before proceeding."}
+            </p>
+            <div>
+              <span>EVENTS</span>
+              <b>{String(data.integrity.events).padStart(2, "0")}</b>
+              <span>CHAIN BREAKS</span>
+              <b>{data.integrity.valid ? "00" : "01"}</b>
+            </div>
+          </article>
+        </aside>
+      </section>
+    </>
+  )
+}
+
+function formatIst(iso: string) {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const date = d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short" })
+  const time = d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false })
+  return `${date} · ${time} IST`
+}
+
+export default App

@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SupplyShield — SAP Hackfest Build Guide</title>
+  <style>
+    @page { size: A4; margin: 16mm 15mm 17mm; @bottom-right { content: counter(page); font: 8pt Arial; color: #718096; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #172b3f; font: 9.5pt/1.48 Arial, sans-serif; }
+    h1,h2,h3,h4 { margin: 0; color: #0c2742; } h1 { font-size: 34pt; letter-spacing: -1.5pt; } h2 { font-size: 20pt; margin-bottom: 10px; } h3 { font-size: 12.5pt; margin: 16px 0 6px; } h4 { font-size: 10pt; margin: 10px 0 4px; }
+    p { margin: 5px 0 9px; } ul,ol { margin: 6px 0 10px; padding-left: 20px; } li { margin: 3px 0; }
+    .cover { height: 252mm; display: flex; flex-direction: column; justify-content: space-between; page-break-after: always; background: linear-gradient(145deg,#071d32,#0b3558); color: white; margin: -16mm -15mm -17mm; padding: 23mm 18mm 18mm; overflow: hidden; position: relative; }
+    .cover:after { content:""; position:absolute; width:150mm; height:150mm; border:1px solid rgba(70,177,255,.25); border-radius:50%; right:-50mm; top:20mm; box-shadow:0 0 0 25mm rgba(32,139,226,.06),0 0 0 50mm rgba(32,139,226,.04); }
+    .cover h1 { color: white; position:relative; z-index:1; }.cover .subtitle { font-size: 16pt; max-width: 145mm; color: #b9d9f2; margin-top: 10px; position:relative; z-index:1; }.cover .kicker { color:#54b7ff; font-size:8pt; letter-spacing:2px; font-weight:bold; }.cover-bottom { display:flex; justify-content:space-between; align-items:end; border-top:1px solid rgba(255,255,255,.2); padding-top:10mm; }.logo { display:flex; align-items:center; gap:8px; font-size:15pt; font-weight:bold; }.shield { width:11mm;height:11mm;border-radius:3mm;background:#1487e3;display:grid;place-items:center; }.cover-meta { text-align:right;color:#9fb9cf;font-size:8pt; }
+    .page { page-break-after: always; min-height: 245mm; }.page:last-child { page-break-after: auto; }
+    .section-no { font-size:8pt; color:#0875ce; font-weight:bold; letter-spacing:1.4px; border-bottom:2px solid #0b7bd5; padding-bottom:5px; margin-bottom:12px; }
+    .callout { border-left:4px solid #0b7bd5; background:#edf6fd; padding:9px 12px; margin:10px 0; border-radius:0 5px 5px 0; }.warning { border-color:#e08b25;background:#fff7e9; }.success { border-color:#16855d;background:#ebf8f2; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin:10px 0; }.card { border:1px solid #dce5ed; border-radius:7px; padding:10px; break-inside:avoid; }.card b { color:#0869bd; display:block; margin-bottom:4px; }
+    table { width:100%; border-collapse:collapse; margin:8px 0 12px; font-size:8.5pt; } th { background:#0d3455;color:white;text-align:left;padding:7px; } td { border:1px solid #dce5ed;padding:6px;vertical-align:top; } tr:nth-child(even) td { background:#f7f9fb; }
+    code { background:#eef2f6;padding:1px 4px;border-radius:3px;font:8pt monospace; }.code { white-space:pre-wrap;background:#0b2036;color:#d8e9f7;padding:10px;border-radius:6px;font:7.5pt/1.45 monospace; }
+    .checklist { list-style:none;padding:0; }.checklist li:before { content:"□";color:#0875ce;font-weight:bold;margin-right:8px; }.tiny { font-size:7.5pt;color:#697b8c; }.flow { display:flex;align-items:center;gap:4px;margin:12px 0; }.flow span { flex:1;text-align:center;background:#eaf4fc;border:1px solid #b9d8ed;border-radius:5px;padding:7px 3px;font-size:7.5pt;font-weight:bold; }.flow i { color:#1483d4;font-style:normal; }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div><div class="kicker">SAP HACKFEST BENGALURU 2026 • TRACK 1</div><h1>SupplyShield</h1><div class="subtitle">The complete beginner-friendly build guide for an agentic, human-governed medical supply-chain control tower using SAP technologies.</div></div>
+    <div class="cover-bottom"><div class="logo"><span class="shield">S</span>SupplyShield</div><div class="cover-meta">Implementation playbook • Demo script • Test checklist<br/>Prepared for the final showcase • 04 November</div></div>
+  </section>
+
+  <section class="page">
+    <div class="section-no">00 / READ THIS FIRST</div><h2>What you will build</h2>
+    <p>SupplyShield detects a simulated port closure, finds affected temperature-sensitive medical shipments, calculates stockout exposure, compares recovery scenarios, applies cold-chain and supplier rules, and asks a planner to approve the safest recommendation.</p>
+    <div class="callout success"><b>Hackathon-safe promise:</b> every number shown in the demo comes from HANA data and deterministic CAP logic. AI interprets and explains; it never invents cost, ETA, stock, or compliance results.</div>
+    <h3>Systems confirmed in your screenshot</h3>
+    <div class="grid">
+      <div class="card"><b>SAP Business Application Studio</b>Build the SAPUI5 frontend and CAP Node.js service.</div>
+      <div class="card"><b>SAP HANA Cloud</b>Store shipments, inventory, disruptions, scenarios, rules, and audit events.</div>
+      <div class="card"><b>SAP AI Launchpad</b>Manage and test an AI Core / Generative AI Hub deployment if your subaccount has that entitlement.</div>
+      <div class="card"><b>SAP Build Lobby</b>Create the human approval process if SAP Build Process Automation is enabled.</div>
+      <div class="card"><b>SAP Build Work Zone</b>Publish the finished control tower as a business site/app tile.</div>
+      <div class="card"><b>SAP BTP</b>The runtime platform behind destinations, identities, CAP, HANA, and app deployment.</div>
+    </div>
+    <div class="callout warning"><b>Entitlement gate:</b> seeing AI Launchpad or Build Lobby does not guarantee Generative AI Hub or Process Automation is enabled. Complete the checks in Phase 0. If unavailable, use the documented SAP-only fallback and label it clearly in the demo.</div>
+    <h3>Final architecture</h3>
+    <div class="flow"><span>Fiori / SAPUI5<br/>Control tower</span><i>→</i><span>CAP Node.js<br/>API + agents</span><i>→</i><span>SAP HANA Cloud<br/>facts + audit</span><i>→</i><span>AI Core / GenAI Hub<br/>explanation</span><i>→</i><span>Build Process<br/>human approval</span><i>→</i><span>Work Zone<br/>launchpad</span></div>
+    <h3>Recommended four-person team</h3>
+    <table><tr><th>Owner</th><th>Primary responsibility</th><th>Backup responsibility</th></tr><tr><td>A — UI lead</td><td>SAPUI5/Fiori screens, charts, responsive layout</td><td>Demo narration</td></tr><tr><td>B — CAP lead</td><td>Entities, services, scenario calculations</td><td>HANA setup</td></tr><tr><td>C — AI/workflow</td><td>AI Core prompt, agent trace, Build approval</td><td>Mock fallback</td></tr><tr><td>D — data/QA</td><td>Sample data, rules, tests, Work Zone, slides</td><td>Video backup</td></tr></table>
+  </section>
+
+  <section class="page">
+    <div class="section-no">01 / PHASE 0 — ACCESS & SCOPE (2–3 HOURS)</div><h2>Verify your SAP landscape before coding</h2>
+    <h3>Step 1 — Open each supplied system</h3>
+    <ol><li>Sign in to the Hackfest portal and open <b>SAP Business Application Studio</b>. Confirm you can create a Dev Space.</li><li>Open <b>SAP HANA Cloud</b>. Confirm a database instance exists and you can open SAP HANA Database Explorer.</li><li>Open <b>SAP AI Launchpad</b>. Look for ML Operations, Workspaces, Scenarios, Executions, Deployments, or Generative AI Hub.</li><li>Open <b>SAP Build Lobby</b>. Select <b>Create</b> and verify whether “Business Process” is offered.</li><li>Open <b>SAP Build Work Zone</b>. Confirm you can edit or create a site.</li></ol>
+    <h3>Step 2 — Record the entitlement matrix</h3>
+    <table><tr><th>Capability</th><th>Pass condition</th><th>SAP-only fallback</th></tr><tr><td>CAP runtime</td><td>Cloud Foundry space and HANA service binding available</td><td>Run CAP in BAS preview for judging</td></tr><tr><td>Generative AI Hub</td><td>A model deployment can be created or called</td><td>CAP template-based grounded explanation; do not call it an LLM</td></tr><tr><td>Build Process Automation</td><td>Business Process project type appears</td><td>CAP Approval entity + SAPUI5 approval action</td></tr><tr><td>Work Zone publish</td><td>Site manager/editor access</td><td>Launch from BAS preview and show publish-ready config</td></tr></table>
+    <h3>Step 3 — Freeze the one demo scenario</h3>
+    <p>Use one event only: <b>Cyclone Varun closes Chennai Port</b>. Three shipments are impacted. The winning scenario reroutes via Krishnapatnam Port, prioritizes vaccine shipment SH-2048, saves 17 hours, adds a known cost, and passes 12 rules.</p>
+    <ul class="checklist"><li>Do not add real-time weather until the core flow works.</li><li>Do not attempt live S/4HANA integration unless credentials and documented APIs are supplied.</li><li>Do not build more than five agents.</li><li>Do not let the model calculate numeric business values.</li></ul>
+    <h3>Acceptance criteria</h3>
+    <ol><li>One click starts the simulation.</li><li>Three impacted shipments appear in under five seconds.</li><li>At least three recovery scenarios are compared.</li><li>An unsafe cold-chain option is visibly rejected.</li><li>A human approves the recommended option.</li><li>The complete decision trace is queryable in HANA.</li></ol>
+  </section>
+
+  <section class="page">
+    <div class="section-no">02 / PHASE 1 — DEVELOPMENT WORKSPACE</div><h2>Create the Business Application Studio project</h2>
+    <h3>Step 1 — Create the Dev Space</h3>
+    <ol><li>Open Business Application Studio → <b>Create Dev Space</b>.</li><li>Name it <code>supplyshield-dev</code>.</li><li>Select <b>Full Stack Cloud Application</b>.</li><li>Add extensions for SAP HANA tools and SAP Fiori tools if offered.</li><li>Choose <b>Create Dev Space</b>, wait until status is RUNNING, then open it.</li></ol>
+    <h3>Step 2 — Create a CAP project</h3>
+    <p>Open Terminal → New Terminal and run:</p>
+    <div class="code">cd ~/projects
+cds init supplyshield --add hana,mta
+cd supplyshield
+npm install
+mkdir -p db/data srv/lib app</div>
+    <p>If <code>cds</code> is unavailable, use the BAS command palette → “CDS: Create Project”, or run <code>npm i -g @sap/cds-dk</code> if installation is allowed.</p>
+    <h3>Step 3 — Add the Fiori app</h3>
+    <ol><li>Command palette → <b>Fiori: Open Application Generator</b>.</li><li>Choose <b>Freestyle SAPUI5</b>; use TypeScript if the wizard offers it.</li><li>Data source: <b>Connect to a System</b> later, or use the local CAP service.</li><li>Module name: <code>controltower</code>; namespace: <code>com.supplyshield</code>.</li><li>Target folder: <code>app</code>.</li><li>Choose the latest stable SAPUI5 version offered by the hackathon system.</li></ol>
+    <h3>Step 4 — Use this repository structure</h3>
+    <div class="code">supplyshield/
+├── app/controltower/       # SAPUI5 / Fiori control tower
+├── db/schema.cds           # HANA data model
+├── db/data/*.csv           # deterministic demo records
+├── srv/supply-service.cds  # OData API contract
+├── srv/supply-service.js   # actions and orchestration
+├── srv/lib/agents/         # five bounded agent functions
+├── srv/lib/rules/          # cold-chain and supplier rules
+├── test/                   # service and calculation tests
+├── mta.yaml
+└── package.json</div>
+    <div class="callout"><b>Checkpoint:</b> run <code>cds watch</code> only inside BAS. Open the supplied preview URL. The CAP welcome page must list your service before moving on.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-no">03 / PHASE 2 — HANA DATA MODEL</div><h2>Model only the data needed for the demo</h2>
+    <h3>Existing application entities</h3>
+    <p>Use <code>db/schema.cds</code> and CSV files in <code>db/data/</code> as the CAP model and canonical seed. Preserve the existing schema, relationships, rules, and audit history.</p>
+    <table><tr><th>Entity</th><th>Role and relationships</th></tr><tr><td>medicines</td><td>Product and cold-chain master data</td></tr><tr><td>facilities</td><td>Hospitals, warehouses, suppliers, and ports</td></tr><tr><td>inventory</td><td>Facility/product stock; composite key</td></tr><tr><td>carriers</td><td>Mode, certification, temperature band, cost, and telemetry</td></tr><tr><td>lanes</td><td>Origin/destination facilities and carrier</td></tr><tr><td>purchase_orders</td><td>Product and destination purchase orders</td></tr><tr><td>shipments</td><td>Purchase order, product, origin, and destination</td></tr><tr><td>temperature_readings</td><td>Shipment telemetry and batch history</td></tr><tr><td>disruptions</td><td>Verified and advisory network events</td></tr><tr><td>disruption_timeline</td><td>Events belonging to a disruption</td></tr><tr><td>infrastructure_status</td><td>Infrastructure impacts belonging to a disruption</td></tr><tr><td>alerts</td><td>Operational alert feed</td></tr><tr><td>recovery_plans</td><td>Analysis plan belonging to a disruption</td></tr><tr><td>recovery_options</td><td>Ranked options belonging to a plan, with optional carrier</td></tr><tr><td>approvals</td><td>Human decision for a plan and optional recovery option</td></tr><tr><td>audit_log</td><td>Append-only, SHA-256 hash-chained audit events</td></tr><tr><td>network_stats</td><td>Canonical control-tower aggregates</td></tr></table>
+    <h3>Important formulas</h3>
+    <div class="card"><b>Stock cover</b><code>stockCoverHours = onHandQuantity / hourlyDemand</code></div>
+    <div class="card"><b>Stockout exposure</b><code>exposureHours = max(0, projectedArrivalHours - stockCoverHours)</code></div>
+    <div class="card"><b>Transparent risk score</b><code>risk = severity×0.30 + criticality×0.30 + stockout×0.25 + coldChain×0.15</code>. Normalize every input to 0–100.</div>
+    <div class="card"><b>Scenario rank</b><code>score = serviceProtection×0.40 + safety×0.30 + speed×0.20 + costEfficiency×0.10</code>. Any hard-rule failure sets <code>feasible=false</code> regardless of score.</div>
+    <h3>Preserve the canonical scenario outcomes</h3>
+    <table><tr><th>Option</th><th>ETA</th><th>Cost</th><th>Rule result</th></tr><tr><td>Wait for original shipment</td><td>48 h</td><td>USD 0</td><td>Rejected: ETA exceeds 28.8 h stock cover</td></tr><tr><td>Transfer from Bengaluru Warehouse</td><td>6 h</td><td>USD 1,100</td><td>Recommended: cold-chain, donor stock, and deadline checks pass</td></tr><tr><td>Air reroute from Mumbai Hub</td><td>8 h</td><td>USD 4,200</td><td>Rejected: carrier lacks verified cold-chain certification and telemetry</td></tr><tr><td>Transfer from Hyderabad DC</td><td>—</td><td>—</td><td>Discarded: 150 transferable vials, 240 required</td></tr></table>
+    <h3>Connect HANA Cloud</h3>
+    <ol><li>In BAS, open SAP HANA Projects and bind to the existing Hackfest SAP HANA Cloud instance.</li><li>Select the existing approved HDI container service and its binding; do not create another database instance or container.</li><li>Confirm the production CAP database profile uses SAP HANA and that the binding resolves to the intended HDI container.</li><li>After backing up and reviewing any existing data, run <code>cds deploy --to hana</code>. CAP deploys the CDS schema and <code>db/data/*.csv</code> rows through HDI.</li><li>Open HANA Database Explorer and verify the generated tables and seeded rows. Do not deploy until the target is approved.</li></ol>
+  </section>
+
+  <section class="page">
+    <div class="section-no">04 / PHASE 3 — CAP SERVICES & AGENTS</div><h2>Build a deterministic agent workflow</h2>
+    <h3>Expose these OData actions</h3>
+    <div class="code">service SupplyService {
+  entity Shipments as projection on db.Shipments;
+  entity Disruptions as projection on db.Disruptions;
+  entity Scenarios as projection on db.Scenarios;
+  entity AuditEvents as projection on db.AuditEvents;
+  action runSimulation(eventID: UUID) returns SimulationResult;
+  action approveScenario(scenarioID: UUID, note: String) returns ApprovalResult;
+}</div>
+    <h3>Implement five bounded “agents” as normal functions</h3>
+    <ol><li><b>Sensing agent:</b> validates event fields and maps severity from a fixed matrix.</li><li><b>Impact agent:</b> spatially/relationally maps event → routes → shipments → inventory.</li><li><b>Scenario agent:</b> creates wait, reroute, transfer, and supplier options from known master data.</li><li><b>Logistics agent:</b> calculates ETA, cost, allocation, and stockout outcome.</li><li><b>Compliance agent:</b> checks product temperature range, carrier approval, telemetry, supplier approval, and route capability.</li></ol>
+    <div class="callout"><b>Orchestrator order:</b> validate → sense → impact → generate → calculate → enforce rules → rank feasible options → optionally ask AI for grounded explanation → persist audit → return response.</div>
+    <h3>Audit every step</h3>
+    <p>Generate one correlation ID per simulation. For every agent, store: timestamp, version, input record IDs, deterministic output, duration, pass/fail state, and error message. Store hashes rather than secrets or full prompts containing sensitive data.</p>
+    <h3>Hard-rule pseudocode</h3>
+    <div class="code">function checkScenario(scenario, product, carrier) {
+  const checks = [
+    { code: 'TEMP_RANGE', pass: scenario.minTemp <= product.minTemp
+      && scenario.maxTemp >= product.maxTemp },
+    { code: 'CARRIER_APPROVED', pass: carrier.approved === true },
+    { code: 'TELEMETRY', pass: carrier.liveTemperatureTelemetry === true },
+    { code: 'MAX_TRANSIT', pass: scenario.hours <= product.maxTransitHours }
+  ];
+  return { checks, feasible: checks.every(c => c.pass) };
+}</div>
+    <h3>Error handling</h3>
+    <ul><li>If a required record is missing, return a visible “Data incomplete” state; never assume a value.</li><li>If AI fails, keep the computed recommendation and show a deterministic explanation.</li><li>If HANA write fails, do not allow approval; show “Audit persistence failed”.</li><li>Make simulation idempotent: repeated clicks for the same event should not create duplicate active incidents.</li></ul>
+  </section>
+
+  <section class="page">
+    <div class="section-no">05 / PHASE 4 — SAP AI LAUNCHPAD</div><h2>Add AI safely, only if entitled</h2>
+    <h3>What AI is allowed to do</h3>
+    <p>Use AI only for (1) extracting event type/location/time from an unstructured alert and (2) turning already-computed facts into a concise planner explanation. AI must not calculate risk, ETA, stock, cost, rule pass/fail, or select records.</p>
+    <h3>Setup path</h3>
+    <ol><li>Open AI Launchpad and select your resource group/workspace.</li><li>Find Generative AI Hub or the model library. Select a small chat model available in your tenant.</li><li>Create a deployment and wait for RUNNING/HEALTHY status.</li><li>In BTP, create the required service key or destination according to the hackathon-provided instructions. Never paste credentials into source code.</li><li>Bind the AI service to the CAP application and read credentials from the service binding.</li><li>Call AI from CAP only; never call it directly from the browser.</li></ol>
+    <h3>Grounded explanation prompt</h3>
+    <div class="code">SYSTEM: You explain a medical supply-chain recommendation.
+Use only the FACTS JSON. Do not invent values. Do not change the selected
+scenario. If a fact is missing, say "not available". Use under 90 words.
+
+FACTS:
+{ event, affectedShipments, selectedScenario, alternatives, ruleChecks }
+
+OUTPUT JSON:
+{ "summary": "", "why": ["", ""], "assumptions": [""], "warning": "" }</div>
+    <h3>Validate the output</h3>
+    <ol><li>Require valid JSON; reject prose outside the schema.</li><li>Check that every number in AI output also occurs in the supplied facts.</li><li>Render AI text under an “AI-generated explanation” label.</li><li>Log model/deployment ID, prompt version, latency, and response status.</li></ol>
+    <div class="callout warning"><b>If no model deployment is available:</b> produce the explanation from CAP string templates. Say “deterministic explanation generator” in your presentation. Do not claim generative AI or fake an AI Core call.</div>
+  </section>
+
+  <section class="page">
+    <div class="section-no">06 / PHASE 5 — FIORI CONTROL TOWER</div><h2>Build the planner experience</h2>
+    <h3>Screen 1 — Overview</h3>
+    <ul><li>Fiori shell/header with SupplyShield identity and planner profile.</li><li>Cards: active disruptions, at-risk shipments, stockout risk, cold-chain compliance.</li><li>Critical incident object card with route, exposure, AI recommendation, and approval state.</li><li>Agent activity timeline and at-risk shipment table.</li></ul>
+    <h3>Screen 2 — Scenario comparison</h3>
+    <p>Display alternatives in one comparison table. Use semantic colors consistently: red = infeasible/hard-rule failure; amber = feasible with service risk; green/blue = recommended. Always show cost, delay, stockout impact, rule status, and data freshness.</p>
+    <h3>Screen 3 — Approval</h3>
+    <p>Before enabling Approve, show the selected scenario, expected recovery, all mandatory checks, assumptions, and an optional decision note. Require explicit planner action; never auto-approve.</p>
+    <h3>Screen 4 — Audit trail</h3>
+    <p>Use a chronological timeline with correlation ID, agent, input source, calculation version, output, and human decision.</p>
+    <h3>Fiori controls to prefer</h3>
+    <table><tr><th>Need</th><th>SAPUI5 control/pattern</th></tr><tr><td>Application shell</td><td><code>sap.f.ShellBar</code></td></tr><tr><td>Page layout</td><td><code>sap.f.DynamicPage</code></td></tr><tr><td>KPIs</td><td><code>sap.m.GenericTile</code> or cards</td></tr><tr><td>Status</td><td><code>sap.m.ObjectStatus</code></td></tr><tr><td>Shipments</td><td><code>sap.m.Table</code> with responsive columns</td></tr><tr><td>Approval</td><td><code>sap.m.Dialog</code> + emphasized button</td></tr><tr><td>Charts</td><td>SAP Fiori card/chart components available in your UI5 version</td></tr></table>
+    <h3>Accessibility and polish checklist</h3>
+    <ul class="checklist"><li>Keyboard focus is visible on every action.</li><li>Status is communicated by text/icon, not color alone.</li><li>All buttons use action verbs.</li><li>Loading, empty, error, and stale-data states exist.</li><li>The dashboard works at 1366×768 and on a tablet width.</li><li>Numbers use Indian formatting consistently (₹, lakh/crore).</li></ul>
+  </section>
+
+  <section class="page">
+    <div class="section-no">07 / PHASE 6 — HUMAN APPROVAL</div><h2>Connect SAP Build Process Automation</h2>
+    <h3>If Business Process is available in Build Lobby</h3>
+    <ol><li>Build Lobby → <b>Create</b> → <b>Business Process</b>.</li><li>Name it <code>SupplyShield Recovery Approval</code>.</li><li>Create process inputs: event ID, scenario ID, summary, cost, saved hours, rule-check JSON, requester.</li><li>Add an <b>Approval Form</b> with Approve and Reject outcomes.</li><li>Add read-only fields for evidence and a required note on rejection.</li><li>Configure recipients using the hackathon user or a planner group.</li><li>On approval, call the CAP <code>approveScenario</code> action through a destination/API trigger.</li><li>On rejection, update scenario state and write the rejection audit event.</li><li>Release and deploy the process; copy its API trigger details into a secure BTP destination/service binding.</li></ol>
+    <h3>If Process Automation is not entitled</h3>
+    <p>Use the SAPUI5 approval dialog and CAP Approval entity. Enforce authorization in CAP, write immutable audit records, and present it as the “in-app SAP approval fallback”. This remains SAP-only and demonstrates the correct governance pattern.</p>
+    <h3>Approval state machine</h3>
+    <div class="flow"><span>ANALYZING</span><i>→</i><span>REVIEW_REQUIRED</span><i>→</i><span>APPROVED<br/>or REJECTED</span><i>→</i><span>SIMULATED_EXECUTION</span><i>→</i><span>CLOSED</span></div>
+    <div class="callout warning"><b>Never claim live logistics execution.</b> The final action must read “Simulate execution” unless you truly have an authorized transactional SAP system integration.</div>
+    <h3>Authorization minimum</h3>
+    <ul><li>Viewer: read dashboard and audit.</li><li>Planner: start simulations and propose options.</li><li>Approver: approve/reject recovery plans.</li><li>Admin: change rules and reference data.</li></ul>
+  </section>
+
+  <section class="page">
+    <div class="section-no">08 / PHASE 7 — DEPLOY & PUBLISH</div><h2>Deploy to SAP BTP and Work Zone</h2>
+    <h3>Build and deploy the CAP application</h3>
+    <div class="code">npm test
+mbt build
+cf login -a &lt;API-ENDPOINT&gt; -o &lt;ORG&gt; -s &lt;SPACE&gt;
+cf deploy mta_archives/supplyshield_1.0.0.mtar</div>
+    <p>Use the endpoint, organization, and space given by the Hackfest account. Do not guess them. After deployment, run <code>cf apps</code> and verify the application is started. Test the OData health endpoint and one read query.</p>
+    <h3>Publish in SAP Build Work Zone</h3>
+    <ol><li>Open Work Zone site manager and choose the provided site or create <code>SupplyShield Command Center</code>.</li><li>Create a business app pointing to the deployed UI5 application/HTML5 app repository content.</li><li>Set title <b>SupplyShield</b>, subtitle <b>Medical Supply Resilience</b>, and an appropriate shield icon.</li><li>Create a role/role collection for planners and assign the app.</li><li>Add the app to a catalog and group/page named <b>Supply Chain Operations</b>.</li><li>Publish the site, assign the planner role to all judges/demo users, and test in a private browser window.</li></ol>
+    <h3>Pre-demo resilience</h3>
+    <ul class="checklist"><li>Seed/reset endpoint restores the known scenario.</li><li>A local/BAS preview fallback is ready.</li><li>A 90-second screen recording is downloaded offline.</li><li>PDF screenshots of the audit and approval result are ready.</li><li>No credentials, personal data, or internal URLs appear on screen.</li></ul>
+    <h3>Observability</h3>
+    <p>Use one correlation ID from alert through approval. Show response time for each agent, HANA persistence status, AI call status, and workflow status. For a hackathon, this trace is often more convincing than adding another feature.</p>
+  </section>
+
+  <section class="page">
+    <div class="section-no">09 / PHASE 8 — TESTING</div><h2>Prove safety, not just the happy path</h2>
+    <table><tr><th>Test</th><th>Input</th><th>Expected result</th></tr><tr><td>Happy path</td><td>Chennai closure with complete data</td><td>Krishnapatnam recommended; 12/12 pass</td></tr><tr><td>Unsafe carrier</td><td>approved=false</td><td>Scenario infeasible even if fastest</td></tr><tr><td>Missing telemetry</td><td>temperatureTelemetry=null</td><td>Hard-rule failure; visible reason</td></tr><tr><td>Stale inventory</td><td>updatedAt older than threshold</td><td>Uncertainty warning and approval blocked/configured</td></tr><tr><td>AI unavailable</td><td>AI endpoint timeout</td><td>Computed recommendation remains; template explanation shown</td></tr><tr><td>Duplicate click</td><td>run same event twice</td><td>No duplicate incident</td></tr><tr><td>Audit failure</td><td>simulate DB write error</td><td>Approval blocked with clear error</td></tr><tr><td>Unauthorized user</td><td>viewer calls approve</td><td>403 and audit security event</td></tr></table>
+    <h3>Numbers the judges may challenge</h3>
+    <p>Keep a “Calculation details” drawer that shows input values and formulas. Be ready to explain the 17 hours saved, ₹6.8 lakh added cost, 31-hour stockout, and 94% confidence. If 94% is not a calibrated model probability, rename it <b>recommendation score</b>.</p>
+    <h3>Definition of done</h3>
+    <ul class="checklist"><li>All hard-rule tests pass.</li><li>AI output contains no ungrounded numbers.</li><li>Every action creates a traceable audit event.</li><li>Demo reset works three times in succession.</li><li>Two teammates can run the demo without the primary developer.</li><li>The architecture slide matches what is actually deployed.</li></ul>
+  </section>
+
+  <section class="page">
+    <div class="section-no">10 / FINAL SHOWCASE</div><h2>Your 5-minute winning demo script</h2>
+    <h3>0:00–0:35 — Stakes</h3><p>“A cyclone closes Chennai Port. Temperature-sensitive vaccines and insulin are delayed. A planner has hours—not days—to prevent stockouts without violating cold-chain policy.”</p>
+    <h3>0:35–1:05 — Start the event</h3><p>Click <b>Run disaster simulation</b>. Point out that the alert is classified and linked to HANA business records, not answered from model memory.</p>
+    <h3>1:05–2:00 — Show multi-agent reasoning</h3><p>Walk down the live agent trace: sensing, impact, scenario planning, logistics calculation, and compliance. Open the three impacted shipments and the 31-hour earliest stockout.</p>
+    <h3>2:00–2:50 — Compare options</h3><p>Show the baseline 26-hour delay, safe reroute at 9 hours, transfer option at 13 hours, and rejected unapproved carrier. Say: “AI explains; deterministic SAP logic decides whether an option is safe.”</p>
+    <h3>2:50–3:35 — Human governance</h3><p>Open the approval. Show all 12 rules and assumptions. Approve. Point out planner identity, timestamp, and decision note in the audit trail.</p>
+    <h3>3:35–4:20 — SAP architecture</h3><p>“SAPUI5 provides the Fiori experience; CAP orchestrates bounded agents; HANA Cloud stores enterprise facts and the audit; AI Core produces grounded explanations; Build Process Automation governs approval; Work Zone is the role-based entry point.”</p>
+    <h3>4:20–5:00 — Value and close</h3><p>“SupplyShield turns fragmented disruption response into an explainable, policy-safe decision in minutes—while keeping a human accountable for every consequential action.”</p>
+    <div class="callout success"><b>Strong closing line:</b> “We are not replacing the planner. We are giving the planner a faster, safer and fully traceable way to act.”</div>
+    <h3>Likely judge questions</h3>
+    <table><tr><th>Question</th><th>Answer</th></tr><tr><td>Why agentic AI?</td><td>Bounded specialists make each step inspectable and independently testable; orchestration preserves state and evidence.</td></tr><tr><td>How do you prevent hallucinations?</td><td>HANA + CAP calculate facts and enforce rules. The model receives a closed facts JSON and only explains.</td></tr><tr><td>Is it really integrated?</td><td>Name only the services visibly deployed. Clearly label simulated execution and any entitlement fallback.</td></tr><tr><td>Can it scale?</td><td>Partition by event/region, run orchestrations asynchronously, index active shipment and inventory queries, and add real S/4 APIs through destinations.</td></tr></table>
+  </section>
+
+  <section>
+    <div class="section-no">11 / BUILD SCHEDULE & FINAL CHECKLIST</div><h2>Four-day execution plan</h2>
+    <table><tr><th>Day</th><th>Must finish</th><th>Exit checkpoint</th></tr><tr><td>Day 1</td><td>Access matrix, scenario, CAP scaffold, HANA model, sample CSV</td><td>CAP reads seeded data</td></tr><tr><td>Day 2</td><td>Impact/scenario/rule engine, service actions, unit tests</td><td>Correct recommendation returned by API</td></tr><tr><td>Day 3</td><td>Fiori dashboard, comparison, approval, agent trace</td><td>End-to-end flow works in BAS</td></tr><tr><td>Day 4</td><td>AI explanation, Build/Work Zone, tests, script, backup video</td><td>Three flawless timed rehearsals</td></tr></table>
+    <h3>Final 30-minute checklist</h3>
+    <div class="grid">
+      <ul class="checklist card"><li>HANA instance is running</li><li>CAP app status is started</li><li>AI deployment is healthy or fallback enabled</li><li>Approval recipient is correct</li><li>Work Zone role is assigned</li></ul>
+      <ul class="checklist card"><li>Seed/reset completed</li><li>Browser zoom is 100%</li><li>Notifications are disabled</li><li>Backup video opens offline</li><li>Every teammate knows the fallback</li></ul>
+    </div>
+    <h3>Do not overclaim</h3>
+    <ul><li>Say “simulated downstream action” unless a real transaction was executed.</li><li>Say “recommendation score” unless confidence is statistically calibrated.</li><li>Say “SAP-ready adapter” for an integration that was not connected.</li><li>Say “prototype result on sample data” for impact percentages.</li></ul>
+    <div class="callout"><b>Reference note:</b> SAP screens and wizard labels can vary by tenant version and entitlements. Use the closest available option and the official help inside your assigned SAP environment. Never put service keys in Git.</div>
+    <p class="tiny">Prepared from the submitted SupplyShield project synopsis and presentation. Architecture deliberately restricted to the SAP systems shown as available: SAP Build Work Zone, SAP Build Lobby, SAP Business Application Studio, SAP AI Launchpad, and SAP HANA Cloud, with SAP BTP runtime services subject to assigned entitlements.</p>
+  </section>
+</body>
+</html>

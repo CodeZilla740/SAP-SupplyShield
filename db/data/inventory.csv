@@ -1,0 +1,7 @@
+facility_code,product_sku,qty_on_hand,reserved_qty,daily_usage,safety_stock
+HOS-STM,MED-INSULIN,120,0,100,0
+HOS-APO,MED-MRNA,840,0,220,0
+HOS-CITY,MED-PLASMA,96,0,18,0
+WH-BLR,MED-INSULIN,1420,0,0,1000
+WH-HYD,MED-INSULIN,600,0,0,450
+WH-MUM,MED-INSULIN,5000,0,0,0

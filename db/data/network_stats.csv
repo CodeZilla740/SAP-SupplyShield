@@ -1,0 +1,11 @@
+metric,value,unit,detail
+resilience_score,82,/100,4 points below 30-day baseline
+supply_continuity,91,%,
+cold_chain_integrity,98.7,%,
+response_readiness,76,%,
+shipments_in_transit,124,,network-wide demo count
+shipments_at_risk,12,,9.7% of in-transit
+route_exceptions,3,,
+temp_compliant_pct,98.7,%,
+hospitals_at_risk,4,,+1 since 17:00
+active_disruptions_delta,2,,vs yesterday

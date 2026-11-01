@@ -1,0 +1,4 @@
+id,severity,location,medicine,message,ago
+1,CRITICAL,Chennai Port,Human Insulin,Port operations suspended due to Cyclone Varun,18 min ago
+2,HIGH,St. Martha Hospital,Human Insulin,Stock cover below 30-hour safety threshold,12 min ago
+3,MEDIUM,Hyderabad DC,Plasma Derivatives,Temperature telemetry latency detected,34 min ago

@@ -1,0 +1,127 @@
+{
+  "planHash": "60b6507341862ed039cf20e64579d611a17f0232b62185eaf216a65370c1533d",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-11-01T12:44:07.3476601Z",
+  "retryCount": 1,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 0,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "frontend-builds",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E supplyshield@1.0.0 build\r\n\u003E npm --prefix ui run build\r\n\r\n\r\n\u003E figma-make-app@1.0.0 build\r\n\u003E vite build\r\n\r\n\u001B[33m(!) Your Vite config uses features that are unsupported by \u0060configLoader: \u0027native\u0027\u0060, which is planned to become the default in a future major version of Vite:\r\n  - \u0060__dirname\u0060 (vite.config.ts:14:27). Use \u0060import.meta.dirname\u0060 instead\r\nSet \u0060VITE_CONFIG_NATIVE_IGNORE_WARNING=true\u0060 to suppress this warning.\u001B[39m\r\n\u001B[36mvite v8.3.5 \u001B[32mbuilding client environment for production...\u001B[36m\u001B[39m\r\ntransforming...\r\n\u2713 19 modules transformed.\r\nrendering chunks...\r\ncomputing gzip size...\r\ndist/index.html                   0.64 kB \u2502 gzip:   0.39 kB\r\ndist/assets/index-xr85z3jp.css   85.92 kB \u2502 gzip:  22.26 kB\r\ndist/assets/index-BQlyUQs_.js   444.71 kB \u2502 gzip: 130.31 kB\r\n\r\n\u001B[32m\u2713 built in 276ms\u001B[39m\r\n",
+        "durationMs": 4047
+      },
+      {
+        "name": "frontend-typechecks",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "",
+        "durationMs": 4256
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E supplyshield@1.0.0 test\r\n\u003E npm --prefix server test\r\n\r\n\r\n\u003E supplyshield-server@1.0.0 test\r\n\u003E node --test test/*.test.js\r\n\r\n\u2714 pipeline creates the canonical plan RP-00942 with 3 options (16.066ms)\r\n\u2714 agents execute in the mandated order Sensing -\u003E Impact -\u003E Scenario -\u003E Logistics -\u003E Compliance (9.2026ms)\r\n\u2714 audit records are created and the hash chain verifies (5.5621ms)\r\n\u2714 impact agent computes canonical risk: insulin at St. Martha, cover 28.8h, shortfall 80 (5.5744ms)\r\n\u2714 scenario agent discards Hyderabad transfer with an explicit reason (9.6855ms)\r\n\u2714 re-running the pipeline is idempotent (plan replaced, not duplicated) (6.2694ms)\r\n\u2714 repeated analysis allocates unique run and plan IDs and preserves a valid audit chain (6.9627ms)\r\n\u2714 analysis for different disruptions allocates distinct IDs and keeps options attached to each plan (7.0664ms)\r\n\u2714 concurrent analyses receive unique IDs and serialize audit-chain writes (10.4427ms)\r\n\u2714 concurrent audit writes produce unique ordered sequence numbers and a valid hash chain (6.7852ms)\r\n\u2714 explainer falls back to a labelled template when AI Core is not configured (4.5012ms)\r\n\u2714 GET /api/health reports engine and honest integration labels (71.86ms)\r\n\u2714 GET /api/overview returns canonical KPIs (21.4569ms)\r\n\u2714 approving the recommended option succeeds and persists the decision (45.7788ms)\r\n\u2714 approving the non-compliant air option is BLOCKED server-side (409) (14.8323ms)\r\n\u2714 a second decision on a decided plan is rejected (409) (16.2676ms)\r\n\u2714 rejecting the plan persists the rejection and audit entry (14.5289ms)\r\n\u2714 POST /api/disruptions validates input and creates unverified events (14.2576ms)\r\n\u2714 run-analysis endpoint re-executes the five-agent pipeline (14.9824ms)\r\n\u2714 concurrent run-analysis requests allocate unique IDs and preserve the audit chain (18.1588ms)\r\n\u2714 audit endpoint exposes hash-chained events and integrity status (30.3942ms)\r\n\u2714 unknown disruption returns 404 (11.1639ms)\r\n\u2714 stock cover calculation: 120 vials at 100/day covers 28.8 hours (0.8893ms)\r\n\u2714 shortfall calculation: 48h delay at 100/day with 120 on hand -\u003E 80 vials (0.1233ms)\r\n\u2714 transfer quantity: shortfall 80 \u002B 1-day buffer, rounded to 120-cases -\u003E 240 (0.1038ms)\r\n\u2714 carrier certification validation (R1) (0.2569ms)\r\n\u2714 safety-stock validation (R2) (0.133ms)\r\n\u2714 deadline validation (R3) (0.8348ms)\r\n\u2714 temperature-band validation (0.2609ms)\r\n\u2714 batch validity check (0.1647ms)\r\n\u2714 recovery-option ranking: only the compliant, in-time option is recommended (0.3555ms)\r\n\u2714 hospital priority rule: P1 before P2, lowest cover first inside a tier (0.7071ms)\r\n\u2139 tests 32\r\n\u2139 suites 0\r\n\u2139 pass 32\r\n\u2139 fail 0\r\n\u2139 cancelled 0\r\n\u2139 skipped 0\r\n\u2139 todo 0\r\n\u2139 duration_ms 1623.9451\r\n",
+        "durationMs": 4997,
+        "testResults": {
+          "testFramework": "unknown",
+          "runnerDetectedFrom": "none",
+          "testsTotal": 0,
+          "testsPassed": 0,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": true
+        }
+      },
+      {
+        "name": "ui-dev-server-serves-home",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n\u003C!doctype html\u003E\n\u003Chtml lang=\u0022en\u0022\u003E\n  \u003Chead\u003E\n    \u003Cscript type=\u0022module\u0022\u003Eimport { injectIntoGlobalHook } from \u0022/@react-refresh\u0022;\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () =\u003E {};\nwindow.$RefreshSig$ = () =\u003E (type) =\u003E type;\u003C/script\u003E\n\n    \u003Cscript type=\u0022module\u0022 src=\u0022/@vite/client\u0022\u003E\u003C/script\u003E\n\n    \u003Cmeta charset=\u0022UTF-8\u0022 /\u003E\n    \u003Cmeta name=\u0022viewport\u0022 content=\u0022width=device-width, initial-scale=1.0\u0022 /\u003E\n    \u003Clink rel=\u0022icon\u0022 href=\u0022/favicon.svg\u0022 /\u003E\n    \u003Cmeta\n      name=\u0022description\u0022\n      content=\u0022SupplyShield \u2014 Agentic AI control tower for resilient medical cold-chains. SAP Hackfest Bengaluru 2026.\u0022\n    /\u003E\n    \u003Ctitle\u003ESupplyShield \u2014 Resilient Medical Supply Network\u003C/title\u003E\n  \u003C/head\u003E\n  \u003Cbody\u003E\n    \u003Cdiv id=\u0022root\u0022\u003E\u003C/div\u003E\n    \u003Cscript type=\u0022module\u0022 src=\u0022/src/main.tsx\u0022\u003E\u003C/script\u003E\n  \u003C/body\u003E\n\u003C/html\u003E\n\n--- server output ---\n\r\n\u003E supplyshield@1.0.0 dev:ui\r\n\u003E npm --prefix ui run dev -- --host 127.0.0.1 --port 5174\r\n\r\n\r\n\u003E figma-make-app@1.0.0 dev\r\n\u003E vite --host 127.0.0.1 --port 5174\r\n\r\n\u001B[33m(!) Your Vite config uses features that are unsupported by \u0060configLoader: \u0027native\u0027\u0060, which is planned to become the default in a future major version of Vite:\r\n  - \u0060__dirname\u0060 (vite.config.ts:14:27). Use \u0060import.meta.dirname\u0060 instead\r\nSet \u0060VITE_CONFIG_NATIVE_IGNORE_WARNING=true\u0060 to suppress this warning.\u001B[39m\r\n\u001B[2m6:14:07 pm\u001B[22m \u001B[36m\u001B[1m[vite]\u001B[22m\u001B[39m \u001B[90m\u001B[2m(client)\u001B[22m\u001B[39m Re-optimizing dependencies because vite config has changed\r\n\r\n  \u001B[32m\u001B[1mVITE\u001B[22m v8.3.5\u001B[39m  \u001B[2mready in \u001B[0m\u001B[1m371\u001B[22m\u001B[2m\u001B[0m ms\u001B[22m\r\n\r\n  \u001B[32m\u279C\u001B[39m  \u001B[1mLocal\u001B[22m:   \u001B[36mhttp://127.0.0.1:\u001B[1m5174\u001B[22m/\u001B[39m\r\n",
+        "durationMs": 3923
+      }
+    ],
+    "executions": [
+      {
+        "source": "frontend-builds",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "run",
+          "build"
+        ],
+        "cwd": "C:\\Users\\ABHIJNA A\\Downloads\\SupplyShield-SAP-HANA-Hackfest",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "frontend-typechecks",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npx.CMD",
+        "args": [
+          "tsc",
+          "--noEmit"
+        ],
+        "cwd": "C:\\Users\\ABHIJNA A\\Downloads\\SupplyShield-SAP-HANA-Hackfest\\ui",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "test"
+        ],
+        "cwd": "C:\\Users\\ABHIJNA A\\Downloads\\SupplyShield-SAP-HANA-Hackfest",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      },
+      {
+        "source": "ui-dev-server-serves-home",
+        "resolvedExecutable": "C:\\Program Files\\nodejs\\npm.CMD",
+        "args": [
+          "run",
+          "dev:ui",
+          "--",
+          "--",
+          "--host",
+          "127.0.0.1",
+          "--port",
+          "5174"
+        ],
+        "cwd": "C:\\Users\\ABHIJNA A\\Downloads\\SupplyShield-SAP-HANA-Hackfest",
+        "env": {},
+        "prependPath": [],
+        "platform": "win32"
+      }
+    ]
+  }
+}
