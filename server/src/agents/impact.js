@@ -1,0 +1,95 @@
+// ============================================================================
+// AGENT 2 - IMPACT AGENT
+// Identifies affected shipments and purchase orders, retrieves medicine and
+// inventory records, computes available stock (after reservations), stock
+// cover hours and shortage quantities, and ranks hospitals by priority.
+// All arithmetic is delegated to the deterministic rules engine.
+// ============================================================================
+const rules = require('../rules/rules');
+const { policy } = require('../db/canonical-data');
+
+async function run(db, disruption, sensing) {
+  // Tracked consignments touching the disrupted port (origin held at port
+  // or already flagged Disrupted by the carrier feed).
+  const affectedShipments = await db.all(
+    `SELECT s.*, m.name AS medicine, m.case_size, m.min_temp, m.max_temp
+     FROM shipments s JOIN medicines m ON m.sku = s.product_sku
+     WHERE s.status = 'Disrupted' OR s.origin_code = 'PORT-' || ? OR s.po_ebeln IN (
+       SELECT ebeln FROM purchase_orders WHERE port = ? AND status = 'IN_TRANSIT')`,
+    [disruption.port.replace(/^IN/, ''), disruption.port],
+  );
+
+  const affectedPOs = await db.all(
+    `SELECT * FROM purchase_orders WHERE port = ? AND status = 'IN_TRANSIT'`,
+    [disruption.port],
+  );
+
+  const facilities = await db.all('SELECT * FROM facilities');
+  const facilitiesByCode = Object.fromEntries(facilities.map((f) => [f.code, f]));
+
+  // Assess the inventory position at the destination of every affected
+  // shipment (facility + product), once each.
+  const seen = new Set();
+  const risks = [];
+  for (const ship of affectedShipments) {
+    const key = `${ship.destination_code}|${ship.product_sku}`;
+    if (seen.has(key) || !ship.destination_code) continue;
+    seen.add(key);
+    const inv = await db.get(
+      'SELECT * FROM inventory WHERE facility_code = ? AND product_sku = ?',
+      [ship.destination_code, ship.product_sku],
+    );
+    const facility = facilitiesByCode[ship.destination_code] || {};
+    const delayHours = ship.delay_hours > 0 ? ship.delay_hours : sensing.delayHours;
+    if (!inv) {
+      risks.push({
+        facility_code: ship.destination_code, facility_name: facility.name,
+        product_sku: ship.product_sku, medicine: ship.medicine, missing_data: true, at_risk: false,
+      });
+      continue;
+    }
+    const available = inv.qty_on_hand - inv.reserved_qty;
+    const coverHours = rules.stockCoverHours(available, inv.daily_usage);
+    const shortfall = rules.shortfallUnits(available, inv.daily_usage, delayHours);
+    const med = await db.get('SELECT * FROM medicines WHERE sku = ?', [ship.product_sku]);
+    const transferQty = shortfall > 0
+      ? rules.transferQuantity(available, inv.daily_usage, delayHours, med.case_size, policy.SAFETY_BUFFER_DAYS)
+      : 0;
+    risks.push({
+      facility_code: ship.destination_code,
+      facility_name: facility.name,
+      priority: facility.priority,
+      product_sku: ship.product_sku,
+      medicine: ship.medicine,
+      unit: med.unit,
+      batch: ship.batch,
+      available,
+      daily_usage: inv.daily_usage,
+      cover_hours: coverHours,
+      cover_days: rules.r1(coverHours / 24),
+      delay_hours: delayHours,
+      shortfall,
+      transfer_qty: transferQty,
+      at_risk: coverHours < delayHours,
+      stockout_gap_hours: rules.r1(Math.max(0, delayHours - coverHours)),
+    });
+  }
+
+  const prioritized = rules.prioritizeHospitals(risks.filter((r) => !r.missing_data), facilitiesByCode);
+  const atRisk = prioritized.filter((r) => r.at_risk);
+
+  return {
+    // Tracked counts from the database; the disruption record additionally
+    // carries network-wide aggregates reported by the alert feed.
+    tracked_shipments: affectedShipments.length,
+    tracked_pos: affectedPOs.length,
+    feed_shipments: disruption.affected_shipments,
+    feed_pos: disruption.affected_pos,
+    hospitals_assessed: facilities.filter((f) => f.type === 'HOSPITAL').length,
+    risks: prioritized,
+    primary: atRisk[0] || null,
+    other_at_risk: atRisk.slice(1),
+  };
+}
+
+module.exports = { run };

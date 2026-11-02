@@ -1,0 +1,40 @@
+{
+  "name": "supplyshield",
+  "version": "1.0.0",
+  "description": "SupplyShield - agentic control tower for resilient medical cold-chains. SAP Hackfest Bengaluru 2026, Track 1.",
+  "private": true,
+  "scripts": {
+    "setup": "npm install && npm --prefix server install && npm --prefix ui install",
+    "dev:server": "npm --prefix server run dev",
+    "dev:ui": "npm --prefix ui run dev",
+    "build": "npm --prefix ui run build",
+    "start": "npm --prefix server start",
+    "test": "npm --prefix server test",
+    "cap:validate": "cds compile db/schema.cds --to json",
+    "cap:validate:data": "cds deploy --to sqlite::memory:",
+    "cap:seed:generate": "node server/src/db/export-cap-data.js"
+  },
+  "dependencies": {
+    "@cap-js/hana": "^2.0.0",
+    "@sap/cds": "^9.0.0"
+  },
+  "devDependencies": {
+    "@cap-js/sqlite": "^2.0.0",
+    "@sap/cds-dk": "^9.0.0"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "[development]": {
+          "kind": "sqlite",
+          "credentials": {
+            "database": ":memory:"
+          }
+        },
+        "[production]": {
+          "kind": "hana"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+id,disruption_id,label,status,tone,icon
+1,INC-2026-1104-03,Port operations,CLOSED,critical,box
+2,INC-2026-1104-03,NH16 coastal corridor,RESTRICTED,warning,route
+3,INC-2026-1104-03,Chennai air cargo,OPERATIONAL,success,truck
+4,INC-2026-1104-03,Rail freight terminal,MONITORING,warning,inventory

@@ -1,0 +1,6 @@
+id,po_ebeln,product_sku,batch,origin_code,origin_label,destination_code,destination_label,route,status,risk,delay_hours,eta_text,current_temp
+SS-2048,PO-88314,MED-INSULIN,IN-84A29,PORT-MAA,Chennai Port,HOS-STM,St. Martha Hospital,NH48 / Bengaluru,Disrupted,Critical,48,48h delayed,4.2
+SS-2051,PO-88321,MED-MRNA,VX-112C,PORT-MAA,Chennai Port,HOS-APO,Apollo Central,NH48 / Bengaluru,Disrupted,Critical,32,32h delayed,3.8
+SS-2056,PO-88298,MED-PLASMA,PL-49F7,WH-HYD,Hyderabad DC,HOS-CITY,City Care Network,NH44 South,Monitoring,Medium,0,6h 20m,5.1
+SS-2060,PO-88342,MED-ONCO,ON-225D,WH-MUM,Mumbai Hub,WH-BLR,Bengaluru MedHub,NH48 South,On track,Low,0,11h 45m,4.7
+SS-2063,PO-88350,MED-RABIES,RV-71B3,WH-MUM,Mumbai Hub,HOS-MAN,Manipal Hospital,Air / BLR,On track,Low,0,4h 15m,3.9

@@ -1,0 +1,4 @@
+id,origin_code,destination_code,mode,distance_km,carrier_code
+1,WH-BLR,HOS-STM,ROAD,300,CAR-ROAD
+2,WH-HYD,HOS-STM,ROAD,570,CAR-ROAD
+3,WH-MUM,HOS-STM,AIR,1000,CAR-AIR

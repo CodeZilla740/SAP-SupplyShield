@@ -1,0 +1,5 @@
+id,disruption_id,ts,title,text,state
+1,INC-2026-1104-03,15:10,Weather alert elevated,Cyclone path updated toward northern Tamil Nadu coast.,done
+2,INC-2026-1104-03,16:22,Port authority restriction,Inbound container movement limited; berth operations paused.,done
+3,INC-2026-1104-03,17:06,Full port closure confirmed,All marine and gate operations suspended for 48 hours.,critical
+4,INC-2026-1104-03,17:11,SupplyShield event created,Network impact correlation started automatically.,active

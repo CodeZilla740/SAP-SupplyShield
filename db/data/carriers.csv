@@ -1,0 +1,3 @@
+code,name,mode,cold_chain_certified,min_temp,max_temp,base_cost,cost_per_km,avg_speed_kmh,handling_hours,telemetry_capable,vehicle
+CAR-ROAD,ColdRoad Express,ROAD,1,2,8,320,2.6,60,1,1,BLR-CC-118
+CAR-AIR,SkyFreight Cargo,AIR,0,,,2800,1.4,250,4,0,

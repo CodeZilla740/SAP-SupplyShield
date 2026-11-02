@@ -1,0 +1,9 @@
+id,disruption_id,run_id,correlation_id,status,recommended_option_id,score,explanation,explanation_source,created_at,decided_at,decided_by,decision_comment
+RP-00942,INC-2026-1104-03,SS-00942,SS-00942-F7A,PENDING_APPROVAL,OPT-B,85,"Event: CYCLONE at port INMAA, severity HIGH, expected delay 48 hours.
+42 purchase orders and 12 shipments across the network are flagged by the alert feed (simulated).
+Highest risk: Human Insulin at St. Martha Hospital - stock cover 28.8 hours (1.2 days), shortfall 80 vials, recommended top-up 240 vials.
+Option ""Wait for original shipment"": REJECTED; cost USD 0; ETA 48h; R3 FAIL: ETA 48h is after projected stockout (cover 28.8h)
+Option ""Transfer 240 vials from Bengaluru Warehouse"": RECOMMENDED; cost USD 1100; ETA 6h; R1 PASS: carrier holds 2-8 C, inside product band 2-8 C | R2 PASS: 1180 units remain at WH-BLR (safety stock 1000) | R3 PASS: ETA 6h is within stock cover 28.8h
+Option ""Air reroute 240 vials from Mumbai Hub"": REJECTED; cost USD 4200; ETA 8h; R1 FAIL: SkyFreight Cargo (air) has no active cold-chain certification; carrier temperature range missing - cannot verify | R2 N/A: supplier hub (capacity confirmed on the SAP PO) | R3 PASS: ETA 8h is within stock cover 28.8h
+Candidate ""Transfer from Hyderabad DC"" discarded: Insufficient transferable stock: 150 vials available above safety stock, 240 required.
+Human approval is required before any action.",Rule-based template (SAP Generative AI Hub not configured - set AICORE_SERVICE_KEY),2026-11-01T07:11:27.163Z,,,

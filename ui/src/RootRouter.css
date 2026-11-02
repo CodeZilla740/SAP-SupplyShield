@@ -1,0 +1,115 @@
+.route-loading,
+.route-error {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  color: #b7d4dc;
+  background: #07131f;
+  font: 600 13px/1.6 Inter, Manrope, sans-serif;
+  text-align: center;
+}
+
+.route-error {
+  color: #ffc0c0;
+}
+
+.dashboard-auth-control {
+  position: fixed;
+  z-index: 90;
+  right: 20px;
+  bottom: 20px;
+  font-family: Inter, Manrope, sans-serif;
+}
+
+.dashboard-auth-trigger {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border: 1px solid rgba(98, 229, 219, .25);
+  border-radius: 12px;
+  color: #76ded1;
+  background: rgba(8, 24, 36, .92);
+  box-shadow: 0 5px 18px rgba(0, 0, 0, .18);
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+}
+
+.dashboard-auth-trigger:hover {
+  border-color: rgba(98, 229, 219, .55);
+  background: rgba(13, 43, 53, .96);
+}
+
+.dashboard-auth-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 9px);
+  display: grid;
+  width: 205px;
+  gap: 6px;
+  padding: 13px;
+  border: 1px solid rgba(98, 229, 219, .22);
+  border-radius: 11px;
+  color: #deeff3;
+  background: rgba(8, 24, 36, .97);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .25);
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-auth-menu strong {
+  overflow: hidden;
+  color: #e4f2f4;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-auth-menu > span:not(.dashboard-auth-error) {
+  color: #8ca5b1;
+  font-size: 8px;
+  text-transform: capitalize;
+}
+
+.dashboard-auth-menu button {
+  min-height: 30px;
+  margin-top: 5px;
+  border: 1px solid rgba(103, 210, 198, .2);
+  border-radius: 7px;
+  color: #7ce0d4;
+  background: rgba(31, 112, 111, .14);
+  font-size: 9px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dashboard-auth-menu button:hover:not(:disabled) {
+  border-color: rgba(103, 210, 198, .5);
+  background: rgba(31, 112, 111, .27);
+}
+
+.dashboard-auth-menu button:disabled {
+  opacity: .6;
+  cursor: wait;
+}
+
+.dashboard-auth-error {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  width: 230px;
+  padding: 8px;
+  border: 1px solid rgba(255, 130, 130, .25);
+  border-radius: 7px;
+  color: #ffc0c0;
+  background: #251b25;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+@media (max-width: 650px) {
+  .dashboard-auth-control {
+    right: 12px;
+    bottom: 12px;
+  }
+}

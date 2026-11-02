@@ -1,0 +1,9 @@
+code,name,city,type,priority,ward,storage_loc
+HOS-STM,St. Martha Hospital,Bengaluru,HOSPITAL,P1,ICU / Diabetes,STM-HOSP-04
+HOS-APO,Apollo Central,Bengaluru,HOSPITAL,P1,Immunization,APO-HOSP-01
+HOS-MAN,Manipal Hospital,Bengaluru,HOSPITAL,P2,Emergency,MAN-HOSP-02
+HOS-CITY,City Care Network,Chennai,HOSPITAL,P3,General,CITY-HOSP-07
+WH-BLR,Bengaluru Warehouse,Bengaluru,WAREHOUSE,P2,,BLR-WH-01
+WH-HYD,Hyderabad DC,Hyderabad,WAREHOUSE,P2,,HYD-WH-01
+WH-MUM,Mumbai Hub,Mumbai,SUPPLIER,P2,,MUM-HUB-01
+PORT-MAA,Chennai Port,Chennai,PORT,P1,,INMAA
