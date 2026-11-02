@@ -6,7 +6,7 @@ const { freshDb } = require('./helpers');
 const { AGENT_SEQUENCE } = require('../src/agents/orchestrator');
 const { audit, verifyChain } = require('../src/utils/audit');
 
-test('pipeline creates the canonical plan RP-00942 with 3 options', async () => {
+test('pipeline creates the canonical plan RP-00942 with feasible and infeasible options', async () => {
   const { db, pipeline } = await freshDb();
   assert.equal(pipeline.planId, 'RP-00942');
   assert.equal(pipeline.runId, 'SS-00942');
@@ -17,10 +17,13 @@ test('pipeline creates the canonical plan RP-00942 with 3 options', async () => 
   assert.equal(plan.recommended_option_id, 'OPT-B'); // canonical: B = Bengaluru transfer
 
   const options = await db.all('SELECT * FROM recovery_options WHERE plan_id = ? ORDER BY id', ['RP-00942']);
-  assert.equal(options.length, 3);
+  assert.equal(options.length, 4);
   const air = options.find((o) => o.code === 'AIR_REROUTE');
-  const transfer = options.find((o) => o.code === 'STOCK_TRANSFER');
+  const transfer = options.find((o) => o.code === 'STOCK_TRANSFER' && o.source_code === 'WH-BLR');
+  const rejectedTransfer = options.find((o) => o.code === 'STOCK_TRANSFER' && o.source_code === 'WH-HYD');
   const wait = options.find((o) => o.code === 'WAIT');
+  assert.equal(options.filter((o) => o.recommended).length, 1);
+  assert.equal(options.find((o) => o.id === plan.recommended_option_id).source_code, 'WH-BLR');
 
   // Canonical figures (match UI + presentation):
   assert.equal(transfer.qty, 240);
@@ -33,6 +36,8 @@ test('pipeline creates the canonical plan RP-00942 with 3 options', async () => 
   assert.equal(air.eta_hours, 8);
   assert.equal(air.compliant, 0);   // R1 fails: carrier not cold-chain certified
   assert.equal(air.eligible, 0);
+  assert.equal(rejectedTransfer.feasible, 0);
+  assert.match(rejectedTransfer.reason, /Insufficient transferable stock/);
 
   assert.equal(wait.compliant, 1);      // no transport rule broken
   assert.equal(wait.meets_deadline, 0); // but 48h > 28.8h cover
@@ -71,16 +76,40 @@ test('impact agent computes canonical risk: insulin at St. Martha, cover 28.8h, 
   assert.equal(primary.transfer_qty, 240);
 });
 
-test('scenario agent discards Hyderabad transfer with an explicit reason', async () => {
+test('scenario agent retains Hyderabad transfer as infeasible with an explicit reason', async () => {
   const { db } = await freshDb();
   const row = await db.get(
     "SELECT payload FROM audit_log WHERE actor = 'ScenarioAgent' ORDER BY seq LIMIT 1",
   );
   const payload = JSON.parse(row.payload);
-  assert.equal(payload.candidates.length, 3);
-  assert.equal(payload.discarded.length, 1);
-  assert.match(payload.discarded[0].reason, /Insufficient transferable stock/);
-  assert.match(payload.discarded[0].title, /Hyderabad/);
+  assert.equal(payload.candidates.length, 4);
+  const rejected = payload.candidates.find((candidate) => /Hyderabad/.test(candidate.title));
+  assert.equal(rejected.feasible, false);
+  assert.match(rejected.reason, /Insufficient transferable stock/);
+});
+
+test('distinct port disruptions produce recommendations from their own inventory and lanes', async () => {
+  const { db } = await freshDb({ withPlan: false });
+  const results = [];
+  for (const id of ['INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10']) {
+    results.push(await require('../src/agents/orchestrator').runPipeline(db, id, 'test'));
+  }
+  assert.match(results[0].recommended.title, /48 units from Pune Distribution Centre/);
+  assert.match(results[1].recommended.title, /100 doses from Kolkata Distribution Centre/);
+  assert.match(results[2].recommended.title, /80 units from Hyderabad DC/);
+  assert.equal(new Set(results.map((result) => result.recommended.source_code)).size, 3);
+});
+
+test('expired medicine batch prevents a transport option from being recommended', async () => {
+  const { db } = await freshDb({ withPlan: false });
+  await db.run("UPDATE medicines SET expiry = '2025-01-01' WHERE sku = 'MED-INSULIN'");
+  const result = await require('../src/agents/orchestrator')
+    .runPipeline(db, 'INC-2026-1104-03', 'test');
+  assert.equal(result.recommended, null);
+  const options = await db.all('SELECT * FROM recovery_options WHERE plan_id = ?', [result.planId]);
+  const transfer = options.find((option) => option.code === 'STOCK_TRANSFER');
+  assert.equal(transfer.eligible, 0);
+  assert.match(transfer.reason, /Batch validity FAIL/);
 });
 
 test('re-running the pipeline is idempotent (plan replaced, not duplicated)', async () => {
@@ -93,7 +122,7 @@ test('re-running the pipeline is idempotent (plan replaced, not duplicated)', as
   );
   assert.equal(pending.n, 1); // the old pending plan was replaced
   const options = await db.all('SELECT * FROM recovery_options WHERE plan_id = ?', [second.planId]);
-  assert.equal(options.length, 3);
+  assert.equal(options.length, 4);
 });
 
 test('repeated analysis allocates unique run and plan IDs and preserves a valid audit chain', async () => {
@@ -108,7 +137,7 @@ test('repeated analysis allocates unique run and plan IDs and preserves a valid 
   assert.equal(new Set(plans.map((plan) => plan.id)).size, plans.length);
   for (const plan of plans) {
     const options = await db.all('SELECT * FROM recovery_options WHERE plan_id = ?', [plan.id]);
-    assert.equal(options.length, 3);
+    assert.equal(options.length, 4);
     assert.ok(options.every((option) => option.plan_id === plan.id));
   }
   assert.equal((await verifyChain(db)).valid, true);
@@ -133,7 +162,7 @@ test('analysis for different disruptions allocates distinct IDs and keeps option
   assert.notEqual(first.planId, second.planId);
   for (const planId of [first.planId, second.planId]) {
     const options = await db.all('SELECT * FROM recovery_options WHERE plan_id = ?', [planId]);
-    assert.equal(options.length, 3);
+    assert.equal(options.length, 4);
     assert.ok(options.every((option) => option.id.startsWith(`OPT-${planId.slice(3)}-`) || planId === 'RP-00942'));
   }
   assert.equal((await verifyChain(db)).valid, true);
@@ -155,7 +184,7 @@ test('concurrent analyses receive unique IDs and serialize audit-chain writes', 
   const activeOptions = await db.all(
     'SELECT * FROM recovery_options WHERE plan_id = ?', [activePlan.id],
   );
-  assert.equal(activeOptions.length, 3);
+  assert.equal(activeOptions.length, 4);
   assert.ok(activeOptions.every((option) => option.plan_id === activePlan.id));
   const auditRows = await db.all(
     'SELECT DISTINCT run_id FROM audit_log WHERE run_id IN (?,?)',

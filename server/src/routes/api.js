@@ -8,6 +8,8 @@ const rules = require('../rules/rules');
 const { engineInfo } = require('../db/index');
 const { seed } = require('../db/seed');
 const { runPipeline } = require('../agents/orchestrator');
+const sensingAgent = require('../agents/sensing');
+const impactAgent = require('../agents/impact');
 const approval = require('../services/approval');
 const { explainerStatus } = require('../llm/explainer');
 const weather = require('../integrations/weather');
@@ -93,25 +95,33 @@ function timeOf(ts) {
 
 async function latestPlan(req, portCode) {
   if (portCode) {
-    const plan = await db(req).get(
+    return db(req).get(
       `SELECT rp.* FROM recovery_plans rp
        JOIN disruptions d ON d.id = rp.disruption_id
        WHERE d.port = ?
        ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
       [portCode],
     );
-    if (plan) return plan;
   }
   return db(req).get('SELECT * FROM recovery_plans ORDER BY created_at DESC, id DESC LIMIT 1');
 }
 
 async function planOptions(req, planId) {
   const rows = await db(req).all('SELECT * FROM recovery_options WHERE plan_id = ? ORDER BY id', [planId]);
-  return rows.map((o) => ({
-    ...o,
-    checks: JSON.parse(o.checks_json || '[]'),
-    scores: JSON.parse(o.scores_json || '{}'),
-  }));
+  return rows.map((o) => {
+    const checks = JSON.parse(o.checks_json || '[]');
+    const storedFlag = (value) => value === true || Number(value) === 1;
+    const compliant = o.code === 'WAIT' || (checks.length > 0 && checks.every((check) => Boolean(check.pass)));
+    const eligible = storedFlag(o.feasible) && compliant && storedFlag(o.meets_deadline);
+    return {
+      ...o,
+      compliant: compliant ? 1 : 0,
+      eligible: eligible ? 1 : 0,
+      recommended: storedFlag(o.recommended) && eligible ? 1 : 0,
+      checks,
+      scores: JSON.parse(o.scores_json || '{}'),
+    };
+  });
 }
 
 async function primaryRiskPosition(req, portCode) {
@@ -123,7 +133,7 @@ async function primaryRiskPosition(req, portCode) {
        FROM inventory i
        JOIN facilities f ON f.code = i.facility_code
        JOIN medicines m ON m.sku = i.product_sku
-       WHERE f.type = 'HOSPITAL' AND i.daily_usage > 0
+       WHERE i.daily_usage > 0
          AND (i.facility_code IN (
            SELECT destination_code FROM purchase_orders WHERE port = ?
          ) OR i.facility_code IN (
@@ -193,6 +203,7 @@ router.get('/disruption-locations', asyncH(async (req, res) => {
   const cityCodeMap = {
     INHYD: 'Hyderabad', INDEL: 'Delhi NCR', INPUN: 'Pune',
     INBOM: 'Mumbai', INKOL: 'Kolkata', INMAA: 'Chennai', INVIZ: 'Visakhapatnam',
+    INBLR: 'Bengaluru',
   };
   const rows = await db(req).all(
     "SELECT id, port, title, type, severity, status FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED') ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'ANALYSED' THEN 2 ELSE 3 END, created_at DESC",
@@ -241,7 +252,12 @@ router.get('/ports', asyncH(async (req, res) => {
 router.post('/admin/reseed', asyncH(async (req, res) => {
   await seed(db(req));
   const result = await runPipeline(db(req), 'INC-2026-1104-03', 'system');
-  for (const did of ['INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10']) {
+  for (const did of [
+    'INC-2026-1104-01', 'INC-2026-1104-02', 'INC-2026-1104-04',
+    'INC-2026-1104-05', 'INC-2026-1104-06', 'INC-2026-1104-07',
+    'INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10',
+    'INC-2026-1104-15',
+  ]) {
     await runPipeline(db(req), did, 'system');
   }
   res.json({ reseeded: true, ...result });
@@ -353,9 +369,10 @@ router.get('/overview', asyncH(async (req, res) => {
       disruption && (
         l.origin_code === `PORT-${disruption.port.replace(/^IN/, '')}` ||
         l.origin_code === disruption.port ||
-        (disruption.port === 'INPUN' && (l.origin_code === 'WH-PUN' || l.destination_code === 'HOS-PUN')) ||
-        (disruption.port === 'INHYD' && (l.origin_code === 'WH-HYD' && l.mode === 'AIR')) ||
-        (disruption.port === 'INDEL' && (l.origin_code === 'WH-DEL' || l.destination_code === 'HOS-DEL'))
+        (disruption.port === 'INPUN' && l.origin_code === 'WH-MUM' && l.destination_code === 'HOS-PUN') ||
+        (disruption.port === 'INHYD' && l.origin_code === 'WH-MUM' && l.destination_code === 'WH-HYD') ||
+        (disruption.port === 'INDEL' && l.origin_code === 'WH-MUM' && l.destination_code === 'HOS-DEL') ||
+        (disruption.port === 'INBLR' && l.origin_code === 'WH-BLR' && l.destination_code === 'HOS-APO')
       ),
     );
     return {
@@ -494,7 +511,20 @@ router.get('/disruptions/:id', asyncH(async (req, res) => {
   if (!d) return res.status(404).json({ error: 'Disruption not found' });
   const timeline = await db(req).all('SELECT ts,title,text,state FROM disruption_timeline WHERE disruption_id = ?', [d.id]);
   const infrastructure = await db(req).all('SELECT label,status,tone,icon FROM infrastructure_status WHERE disruption_id = ?', [d.id]);
-  res.json({ demo: true, disruption: d, timeline, infrastructure });
+  const sensing = await sensingAgent.run(db(req), d);
+  const impact = sensing.errors.length ? null : await impactAgent.run(db(req), d, sensing);
+  const affectedShipments = await db(req).all(
+    `SELECT s.id,s.origin_label,s.destination_label,s.status,s.risk,s.eta_text,m.name AS medicine
+     FROM shipments s JOIN medicines m ON m.sku=s.product_sku
+     JOIN purchase_orders p ON p.ebeln=s.po_ebeln
+     WHERE p.port=? AND p.status='IN_TRANSIT' ORDER BY s.id`,
+    [d.port],
+  );
+  res.json({
+    demo: true, disruption: d, timeline, infrastructure,
+    impact: impact ? impact.primary : null,
+    affectedShipments,
+  });
 }));
 
 router.post('/disruptions', asyncH(async (req, res) => {
@@ -533,14 +563,21 @@ router.post('/disruptions/:id/run-analysis', asyncH(async (req, res) => {
 // 3. Shipments
 // ---------------------------------------------------------------------------
 router.get('/shipments', asyncH(async (req, res) => {
+  const port = req.query.port;
   const shipments = await db(req).all(
-    `SELECT s.*, m.name AS medicine FROM shipments s JOIN medicines m ON m.sku = s.product_sku ORDER BY s.id`,
+    `SELECT s.*, m.name AS medicine FROM shipments s
+     JOIN medicines m ON m.sku = s.product_sku
+     ${port ? 'JOIN purchase_orders p ON p.ebeln=s.po_ebeln WHERE p.port=?' : ''}
+     ORDER BY s.id`,
+    port ? [port] : [],
   );
   const telemetry = await db(req).get(
     `SELECT COUNT(*) AS total,
        SUM(CASE WHEN t.temp_c BETWEEN m.min_temp AND m.max_temp THEN 1 ELSE 0 END) AS compliant
      FROM temperature_readings t JOIN shipments s ON s.id=t.shipment_id
-     JOIN medicines m ON m.sku=s.product_sku`,
+     JOIN medicines m ON m.sku=s.product_sku
+     ${port ? 'JOIN purchase_orders p ON p.ebeln=s.po_ebeln WHERE p.port=?' : ''}`,
+    port ? [port] : [],
   );
   const inRangePct = telemetry.total
     ? Math.round((Number(telemetry.compliant || 0) / telemetry.total) * 1000) / 10 : 0;
@@ -667,6 +704,7 @@ router.get('/inventory', asyncH(async (req, res) => {
     critical: {
       medicine: worst.medicine,
       facility: worst.facility_name,
+      priority: worst.priority,
       batch: worst.batch,
       available: worst.available,
       unit: worst.unit,
@@ -692,6 +730,8 @@ router.get('/inventory', asyncH(async (req, res) => {
 async function planPayload(req, plan) {
   const options = await planOptions(req, plan.id);
   const disruption = await db(req).get('SELECT * FROM disruptions WHERE id = ?', [plan.disruption_id]);
+  const sensing = disruption ? await sensingAgent.run(db(req), disruption) : null;
+  const impact = disruption && sensing ? await impactAgent.run(db(req), disruption, sensing) : null;
   const linkedShipments = await db(req).get(
     `SELECT COUNT(DISTINCT s.id) AS n FROM shipments s
      JOIN purchase_orders p ON p.ebeln=s.po_ebeln
@@ -710,13 +750,23 @@ async function planPayload(req, plan) {
     warning: i === 4 && rejectedByRules > 0,
   }));
   const recommended = options.find((o) => o.recommended) || null;
-  return { plan, options, recommended, disruption, ribbon };
+  return { plan, options, recommended, disruption, impact: impact ? impact.primary : null, ribbon };
 }
 
 router.get('/recovery-plans/current', asyncH(async (req, res) => {
   const port = req.query.port;
-  let plan = null;
-  if (port) {
+  const disruptionId = req.query.disruptionId;
+  let plan;
+  if (disruptionId) {
+    const portFilter = port ? 'AND d.port = ?' : '';
+    plan = await db(req).get(
+      `SELECT rp.* FROM recovery_plans rp
+       JOIN disruptions d ON d.id = rp.disruption_id
+       WHERE rp.disruption_id = ? ${portFilter}
+       ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
+      port ? [disruptionId, port] : [disruptionId],
+    );
+  } else if (port) {
     plan = await db(req).get(
       `SELECT rp.* FROM recovery_plans rp
        JOIN disruptions d ON d.id = rp.disruption_id
@@ -724,9 +774,40 @@ router.get('/recovery-plans/current', asyncH(async (req, res) => {
        ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
       [port],
     );
+  } else {
+    plan = await latestPlan(req);
   }
-  if (!plan) plan = await latestPlan(req);
-  if (!plan) return res.status(404).json({ error: 'No recovery plan yet - run the AI impact assessment first.' });
+  if (!plan) {
+    let selectedDisruption = null;
+    if (disruptionId) {
+      const portFilter = port ? 'AND port = ?' : '';
+      selectedDisruption = await db(req).get(
+        `SELECT * FROM disruptions WHERE id = ? ${portFilter}`,
+        port ? [disruptionId, port] : [disruptionId],
+      );
+    } else if (port) {
+      selectedDisruption = await db(req).get(
+        `SELECT * FROM disruptions WHERE port = ?
+         ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'MONITORING' THEN 2 ELSE 3 END,
+           created_at DESC, id DESC LIMIT 1`,
+        [port],
+      );
+    }
+    if (selectedDisruption) {
+      const sensing = await sensingAgent.run(db(req), selectedDisruption);
+      if (!sensing.errors.length) {
+        const impact = await impactAgent.run(db(req), selectedDisruption, sensing);
+        if (!impact.primary) {
+          const noLinkedData = impact.tracked_shipments === 0 || impact.risks.some((risk) => risk.missing_data);
+          const error = noLinkedData
+            ? 'A recovery plan cannot be generated because linked shipment or medicine inventory data is incomplete.'
+            : 'No stockout risk is predicted for this disruption from the available inventory and delay data; no recovery action is required.';
+          return res.status(404).json({ error });
+        }
+      }
+    }
+    return res.status(404).json({ error: 'No recovery plan exists for the selected disruption or facility. Run its analysis in Disruption Monitor.' });
+  }
   res.json({ demo: true, ...(await planPayload(req, plan)) });
 }));
 
@@ -769,8 +850,24 @@ router.post('/recovery-options/:id/approve', asyncH(async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/compliance', asyncH(async (req, res) => {
   const port = req.query.port;
-  const plan = await latestPlan(req, port);
-  const worst = await primaryRiskPosition(req, port);
+  const disruptionId = req.query.disruptionId;
+  const plan = typeof disruptionId === 'string'
+    ? await db(req).get(
+      `SELECT rp.* FROM recovery_plans rp
+       JOIN disruptions d ON d.id = rp.disruption_id
+       WHERE rp.disruption_id = ? ${port ? 'AND d.port = ?' : ''}
+       ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
+      port ? [disruptionId, port] : [disruptionId],
+    )
+    : await latestPlan(req, port);
+  const planDisruption = plan
+    ? await db(req).get('SELECT * FROM disruptions WHERE id = ?', [plan.disruption_id])
+    : null;
+  const planSensing = planDisruption ? await sensingAgent.run(db(req), planDisruption) : null;
+  const planImpact = planDisruption && planSensing
+    ? await impactAgent.run(db(req), planDisruption, planSensing)
+    : null;
+  const worst = (planImpact && planImpact.primary) || await primaryRiskPosition(req, port);
   const sku = (worst && worst.product_sku) || 'MED-INSULIN';
   const med = (await db(req).get("SELECT * FROM medicines WHERE sku = ?", [sku])) ||
               (await db(req).get("SELECT * FROM medicines WHERE sku = 'MED-INSULIN'"));
@@ -790,18 +887,44 @@ router.get('/compliance', asyncH(async (req, res) => {
   const batchCheck = rules.checkBatchValidity(med);
 
   const options = plan ? await planOptions(req, plan.id) : [];
-  const validations = options
+  const validations = await Promise.all(options
     .filter((o) => o.code !== 'WAIT')
-    .map((o) => ({
-      title: o.title || (o.code === 'AIR_REROUTE' ? 'Air rerouting' : 'Stock transfer'),
-      status: o.compliant ? 'PASSED' : 'FAILED',
-      tone: o.compliant ? 'passed' : 'failed',
-      checks: o.checks.map((c) => ({ label: c.label, pass: Boolean(c.pass) })),
-      reason: o.compliant ? 'All configured requirements verified.' : (o.checks.find((c) => !c.pass) || {}).note || 'Validation failed.',
+    .map(async (o) => {
+      const compliant = o.checks.length > 0 && o.checks.every((check) => Boolean(check.pass));
+      const failedCheck = o.checks.find((check) => !check.pass);
+      const donor = o.source_code
+        ? await db(req).get('SELECT name FROM facilities WHERE code = ?', [o.source_code])
+        : null;
+      return {
+        id: o.id,
+        code: o.code,
+        title: o.title || (o.code === 'AIR_REROUTE' ? 'Air rerouting' : 'Stock transfer'),
+        medicine: med.name,
+        donorWarehouse: donor ? donor.name : o.source_code || 'Unavailable',
+        qty: Number(o.qty),
+        unit: med.unit,
+        etaHours: Number(o.eta_hours),
+        costUsd: Number(o.cost_usd),
+        status: compliant ? 'PASSED' : 'FAILED',
+        tone: compliant ? 'passed' : 'failed',
+        recommendationStatus: o.recommended ? 'RECOMMENDED' : !o.eligible ? 'REJECTED' : 'HIGH RISK',
+        recommendationTone: o.recommended ? 'recommended' : !o.eligible ? 'rejected' : 'high-risk',
+        checks: o.checks.map((check) => ({
+          label: check.label,
+          pass: Boolean(check.pass),
+          note: check.note || '',
+        })),
+        reason: compliant ? 'All configured requirements verified.' : failedCheck?.note || 'Validation failed.',
+      };
     }));
 
   res.json({
     demo: true,
+    plan: plan ? {
+      id: plan.id,
+      disruptionId: plan.disruption_id,
+      recommendedOptionId: plan.recommended_option_id,
+    } : null,
     networkCompliance,
     range: { min: med.min_temp, max: med.max_temp, label: `+${med.min_temp}°C to +${med.max_temp}°C` },
     appliesTo: `${med.name} batch ${med.batch}`,
@@ -829,38 +952,103 @@ router.get('/compliance', asyncH(async (req, res) => {
 // ---------------------------------------------------------------------------
 router.get('/audit', asyncH(async (req, res) => {
   const port = req.query.port;
-  const plan = await latestPlan(req, port);
+  const disruptionId = req.query.disruptionId;
+  const hasDisruptionSelection = Object.prototype.hasOwnProperty.call(req.query, 'disruptionId');
+  const plan = hasDisruptionSelection
+    ? typeof disruptionId === 'string' && disruptionId
+      ? await db(req).get(
+      `SELECT rp.* FROM recovery_plans rp
+       JOIN disruptions d ON d.id = rp.disruption_id
+       WHERE rp.disruption_id = ? ${port ? 'AND d.port = ?' : ''}
+       ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
+      port ? [disruptionId, port] : [disruptionId],
+    )
+      : null
+    : await latestPlan(req, port);
   const integrity = await verifyChain(db(req));
-  if (!plan) return res.json({ demo: true, plan: null, events: [], integrity });
+  if (!plan) return res.json({
+    demo: true, disruptionId: disruptionId || null, plan: null,
+    agentHistory: [], humanReview: [], events: [], integrity,
+  });
   const options = await planOptions(req, plan.id);
   const recommended = options.find((o) => o.recommended) || options[0];
-  const rows = await db(req).all('SELECT * FROM audit_log WHERE run_id = ? ORDER BY seq', [plan.run_id]);
-  // Also surface decision events from other runs of the same plan chain.
-  const decisionRows = await db(req).all(
-    "SELECT * FROM audit_log WHERE step LIKE 'Recovery plan %' OR step LIKE 'Approval BLOCKED%' ORDER BY seq",
+  const agentActors = [
+    'SensingAgent', 'ImpactAgent', 'ScenarioAgent', 'LogisticsAgent', 'ComplianceAgent',
+  ];
+  const runRows = await db(req).all(
+    'SELECT * FROM audit_log WHERE run_id = ? ORDER BY seq',
+    [plan.run_id],
   );
-  const seen = new Set();
-  const allRows = [...rows, ...decisionRows].filter((r) => {
-    if (seen.has(r.seq)) return false;
-    seen.add(r.seq);
-    return true;
-  }).sort((a, b) => a.seq - b.seq);
-
-  const events = allRows.map((r) => {
-    const display = STEP_DISPLAY[r.step] || { title: r.step, icon: 'document', state: 'complete' };
+  const rows = runRows.filter((row) => agentActors.includes(row.actor));
+  const agentLabels = {
+    SensingAgent: { name: 'Sensing Agent', action: 'Disruption severity and expected delay assessed.' },
+    ImpactAgent: { name: 'Impact Agent', action: 'Linked demand, inventory and shipment impact assessed.' },
+    ScenarioAgent: { name: 'Scenario Agent', action: 'Recovery alternatives generated from available routes and stock.' },
+    LogisticsAgent: { name: 'Logistics Agent', action: 'Transportation options, delivery times and costs evaluated.' },
+    ComplianceAgent: { name: 'Compliance Agent', action: 'Mandatory pharmaceutical and logistics controls evaluated.' },
+  };
+  const agentHistory = rows.map((row) => {
+    let payload = {};
+    try { payload = JSON.parse(row.payload || '{}'); } catch { payload = {}; }
+    let result = 'Analysis completed; outcome recorded for this recovery plan.';
+    if (row.actor === 'SensingAgent') {
+      result = `${payload.severity || 'Unknown'} severity · ${payload.delay_hours ?? 'Unavailable'}h expected delay`;
+    } else if (row.actor === 'ImpactAgent') {
+      result = `${payload.feed_shipments ?? 0} linked shipments and ${payload.feed_pos ?? 0} purchase orders assessed`;
+    } else if (row.actor === 'ScenarioAgent') {
+      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+      result = `${candidates.length} recovery alternatives generated`;
+    } else if (row.actor === 'LogisticsAgent') {
+      const evaluated = Array.isArray(payload) ? payload : [];
+      result = `${evaluated.filter((option) => option.feasible).length} of ${evaluated.length} routes feasible`;
+    } else if (row.actor === 'ComplianceAgent') {
+      const checked = Array.isArray(payload) ? payload : [];
+      result = `${checked.filter((option) => option.eligible).length} of ${checked.length} options passed all controls`;
+    }
     return {
-      time: timeOf(r.ts), title: display.title, actor: r.actor,
-      text: auditText(r), icon: display.icon, state: display.state,
-      hash: r.hash.slice(0, 12),
+      id: `${plan.id}:${row.actor}:${row.seq}`,
+      name: agentLabels[row.actor].name,
+      timestamp: row.ts,
+      action: agentLabels[row.actor].action,
+      result,
+      status: 'COMPLETED',
     };
   });
-  if (plan.status === 'PENDING_APPROVAL') {
-    events.push({
-      time: 'PENDING', title: 'Awaiting authorization', actor: 'Human decision',
-      text: 'No execution can proceed until an authorized planner decides.',
-      icon: 'clock', state: 'active', hash: null,
-    });
-  }
+  const approvals = await db(req).all(
+    'SELECT id,decision,actor,comment,created_at FROM approvals WHERE plan_id = ? ORDER BY created_at,id',
+    [plan.id],
+  );
+  const humanReview = approvals.length
+    ? approvals.map((review) => ({
+      id: review.id,
+      planId: plan.id,
+      reviewer: review.actor,
+      timestamp: review.created_at,
+      decision: review.decision,
+      comment: review.comment || '',
+    }))
+    : plan.status === 'PENDING_APPROVAL'
+      ? [{
+        id: `${plan.id}:pending-review`,
+        planId: plan.id,
+        reviewer: null,
+        timestamp: null,
+        decision: 'PENDING',
+        comment: '',
+      }]
+      : [];
+  const events = runRows.map((row) => {
+    const display = STEP_DISPLAY[row.step] || { title: row.step, icon: 'document', state: 'complete' };
+    return {
+      time: timeOf(row.ts),
+      title: display.title,
+      actor: row.actor,
+      text: auditText(row),
+      icon: display.icon,
+      state: display.state,
+      hash: row.hash.slice(0, 12),
+    };
+  });
 
   const worst = await primaryRiskPosition(req, port);
   const destCode = (worst && worst.facility_code) || 'HOS-STM';
@@ -886,6 +1074,9 @@ router.get('/audit', asyncH(async (req, res) => {
       planner: plan.decided_by || null,
       decidedAt: plan.decided_at || null,
     },
+    disruptionId: plan.disruption_id,
+    agentHistory,
+    humanReview,
     events,
     execution: {
       transferReference: approvalRow && plan.status === 'APPROVED'

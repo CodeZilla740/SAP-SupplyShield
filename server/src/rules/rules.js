@@ -61,16 +61,23 @@ function ruleColdChain(product, carrier) {
 // configured safety stock.
 function ruleSafetyStock(sourceInv, qty, sourceCode) {
   if (!sourceInv) return { pass: false, note: `R2 FAIL: no stock record at ${sourceCode}` };
-  const left = num(sourceInv.qty_on_hand) - num(qty);
-  if (left < num(sourceInv.safety_stock)) {
+  const onHand = num(sourceInv.qty_on_hand);
+  const reserved = num(sourceInv.reserved_qty);
+  const requested = num(qty);
+  const safetyStock = num(sourceInv.safety_stock);
+  if ([onHand, reserved, requested, safetyStock].some((value) => value === null)) {
+    return { pass: false, note: `R2 FAIL: stock, reservation, transfer, or safety-stock data is missing at ${sourceCode}` };
+  }
+  const left = onHand - reserved - requested;
+  if (left < safetyStock) {
     return {
       pass: false,
-      note: `R2 FAIL: would leave ${left} units at ${sourceCode}, below safety stock ${num(sourceInv.safety_stock)}`,
+      note: `R2 FAIL: would leave ${left} available units at ${sourceCode}, below safety stock ${safetyStock}`,
     };
   }
   return {
     pass: true,
-    note: `R2 PASS: ${left} units remain at ${sourceCode} (safety stock ${num(sourceInv.safety_stock)})`,
+    note: `R2 PASS: ${left} available units remain at ${sourceCode} (safety stock ${safetyStock})`,
   };
 }
 

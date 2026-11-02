@@ -14,8 +14,8 @@ async function run(db, scenario, impact, sensing) {
       o.carrier_name = '-';
       o.vehicle = '';
       o.cost_usd = 0;
-      o.eta_hours = sensing.delayHours;
-      o.logistics_note = `Replenishment resumes after the disruption clears (~${sensing.delayHours}h).`;
+      o.eta_hours = primary.delay_hours || sensing.delayHours;
+      o.logistics_note = `Replenishment resumes after the linked shipment delay (~${o.eta_hours}h).`;
       continue;
     }
     const carrier = await db.get('SELECT * FROM carriers WHERE code = ?', [o.carrier_code]);

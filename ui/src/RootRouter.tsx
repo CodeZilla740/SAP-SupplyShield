@@ -163,7 +163,7 @@ export default function RootRouter() {
     if (authStatus !== "signed-in" || !user) return null
     return (
       <>
-        <App />
+        <App user={user} />
         <DashboardAccountMenu user={user} busy={logoutBusy} error={logoutError} onLogout={signOut} />
       </>
     )

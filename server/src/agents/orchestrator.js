@@ -101,7 +101,7 @@ async function runPipelineInTransaction(db, disruptionId, actor) {
     hospitals_assessed: impact.hospitals_assessed, risks: impact.risks,
   });
   if (!impact.primary) {
-    const scenario = await scenarioAgent.run(db, impact);
+    const scenario = await scenarioAgent.run(db, impact, disruption);
     await audit(db, runId, 'ScenarioAgent', 'Recovery scenarios generated', {
       candidates: [], discarded: [], result: 'No inventory risk identified; no action scenarios required.',
     });
@@ -118,9 +118,13 @@ async function runPipelineInTransaction(db, disruptionId, actor) {
   }
 
   // ---- Agent 3: Scenario --------------------------------------------------
-  const scenario = await scenarioAgent.run(db, impact);
+  const scenario = await scenarioAgent.run(db, impact, disruption);
   await audit(db, runId, 'ScenarioAgent', 'Recovery scenarios generated', {
-    candidates: scenario.options.map((o) => o.title),
+    candidates: scenario.options.map((o) => ({
+      title: o.title,
+      feasible: Boolean(o.feasible),
+      reason: o.feasibility_note || '',
+    })),
     discarded: scenario.discarded,
   });
 
@@ -177,12 +181,12 @@ async function runPipelineInTransaction(db, disruptionId, actor) {
     (a, b) => (ORDER[a.code] !== undefined ? ORDER[a.code] : 9)
       - (ORDER[b.code] !== undefined ? ORDER[b.code] : 9),
   );
-  const optionIds = {};
+  const optionIds = new Map();
   for (let i = 0; i < displayOrder.length; i++) {
     const o = displayOrder[i];
     const runSuffix = String(runNo).padStart(5, '0');
     const id = runNo === 942 ? `OPT-${letters[i]}` : `OPT-${runSuffix}-${letters[i]}`;
-    optionIds[o.code] = id;
+    optionIds.set(o, id);
     await db.run(
       `INSERT INTO recovery_options (id,plan_id,code,title,source_code,carrier_code,qty,cost_usd,eta_hours,feasible,compliant,meets_deadline,eligible,rank,recommended,status,reason,checks_json,scores_json)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -193,7 +197,7 @@ async function runPipelineInTransaction(db, disruptionId, actor) {
     );
   }
   if (recommended) {
-    await db.run('UPDATE recovery_plans SET recommended_option_id = ? WHERE id = ?', [optionIds[recommended.code], planId]);
+    await db.run('UPDATE recovery_plans SET recommended_option_id = ? WHERE id = ?', [optionIds.get(recommended), planId]);
   }
   await db.run('UPDATE disruptions SET status = ? WHERE id = ?', ['ANALYSED', disruptionId]);
 

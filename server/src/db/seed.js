@@ -3,6 +3,9 @@
 // Re-seeding first clears the transactional and master tables, so the
 // operation is idempotent and safe to re-run before a demo.
 const data = require('./canonical-data');
+const REMOVED_DISRUPTION_IDS = [
+  'INC-2026-1104-11', 'INC-2026-1104-12', 'INC-2026-1104-13', 'INC-2026-1104-14',
+];
 
 const CLEAR_ORDER = [
   'temperature_readings', 'shipment_tracking', 'shipments', 'recovery_options', 'approvals',
@@ -133,19 +136,47 @@ async function seed(db, { includeMasterData = true } = {}) {
   }
 }
 
+async function removeAddedDisruptions(db) {
+  const placeholders = REMOVED_DISRUPTION_IDS.map(() => '?').join(',');
+  await db.withTransaction(async (tx) => {
+    const planFilter = `SELECT id FROM recovery_plans WHERE disruption_id IN (${placeholders})`;
+    await tx.run(`DELETE FROM approvals WHERE plan_id IN (${planFilter})`, REMOVED_DISRUPTION_IDS);
+    await tx.run(`DELETE FROM recovery_options WHERE plan_id IN (${planFilter})`, REMOVED_DISRUPTION_IDS);
+    await tx.run(`DELETE FROM recovery_plans WHERE disruption_id IN (${placeholders})`, REMOVED_DISRUPTION_IDS);
+    await tx.run(`DELETE FROM disruption_timeline WHERE disruption_id IN (${placeholders})`, REMOVED_DISRUPTION_IDS);
+    await tx.run(`DELETE FROM infrastructure_status WHERE disruption_id IN (${placeholders})`, REMOVED_DISRUPTION_IDS);
+    await tx.run(`DELETE FROM disruptions WHERE id IN (${placeholders})`, REMOVED_DISRUPTION_IDS);
+  });
+}
+
+async function syncDelhiDemandSurge(db) {
+  const disruption = data.disruptions.find((row) => row.id === 'INC-2026-1104-05');
+  if (!disruption) throw new Error('Canonical Delhi demand-surge disruption is missing');
+  await db.run(
+    'UPDATE disruptions SET description = ?, source = ? WHERE id = ?',
+    [disruption.description, disruption.source, disruption.id],
+  );
+}
+
 async function seedGeographicAdditions(db) {
-  const facilityCodes = new Set(['WH-DEL', 'HOS-DEL', 'WH-KOL', 'HOS-KOL', 'WH-PUN', 'HOS-PUN']);
+  const facilityCodes = new Set([
+    'WH-DEL', 'HOS-DEL', 'WH-KOL', 'HOS-KOL', 'WH-PUN', 'HOS-PUN',
+    'WH-BLR', 'WH-HYD', 'HOS-APO',
+  ]);
   const additions = [
     { table: 'facilities', columns: ['code', 'name', 'city', 'type', 'priority', 'ward', 'storage_loc'], keys: ['code'],
       rows: data.facilities.filter((row) => facilityCodes.has(row.code)) },
     { table: 'inventory', columns: ['facility_code', 'product_sku', 'qty_on_hand', 'reserved_qty', 'daily_usage', 'safety_stock'], keys: ['facility_code', 'product_sku'],
-      rows: data.inventory.filter((row) => facilityCodes.has(row.facility_code)) },
+      rows: [
+        ...data.inventory.filter((row) => facilityCodes.has(row.facility_code)),
+        ...data.inventory.filter((row) => row.facility_code === 'WH-MUM' && row.product_sku === 'MED-PLASMA'),
+      ] },
     { table: 'lanes', columns: ['id', 'origin_code', 'destination_code', 'mode', 'distance_km', 'carrier_code'], keys: ['id'],
-      rows: data.lanes.filter((row) => row.id >= 4 && row.id <= 9) },
+      rows: data.lanes.filter((row) => (row.id >= 4 && row.id <= 9) || row.id >= 13 && row.id <= 17) },
     { table: 'purchase_orders', columns: ['ebeln', 'supplier_name', 'product_sku', 'destination_code', 'qty', 'port', 'status', 'eta'], keys: ['ebeln'],
       rows: data.purchaseOrders.filter((row) => row.ebeln.startsWith('PO-884')) },
     { table: 'shipments', columns: ['id', 'po_ebeln', 'product_sku', 'batch', 'origin_code', 'origin_label', 'destination_code', 'destination_label', 'route', 'status', 'risk', 'delay_hours', 'eta_text', 'current_temp'], keys: ['id'],
-      rows: data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2072') },
+      rows: data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2086') },
     { table: 'disruptions', columns: ['id', 'type', 'title', 'port', 'severity', 'description', 'status', 'radius_km', 'wind_kmh', 'expected_delay_hours', 'affected_shipments', 'affected_pos', 'verified', 'source', 'created_at'], keys: ['id'],
       rows: data.disruptions.filter((row) => row.id >= 'INC-2026-1104-04') },
     { table: 'disruption_timeline', columns: ['disruption_id', 'ts', 'title', 'text', 'state'], keys: ['disruption_id', 'ts'],
@@ -154,6 +185,7 @@ async function seedGeographicAdditions(db) {
       rows: data.infrastructureStatus.filter((row) => row.disruption_id !== 'INC-2026-1104-03') },
   ];
   const inserted = {};
+  const mutableColumns = { disruptions: new Set(['status']) };
   const same = (left, right) => {
     if (right === null || right === undefined) return left === null || left === undefined;
     if (typeof right === 'number') return left !== null && left !== undefined && Number(left) === right;
@@ -169,7 +201,9 @@ async function seedGeographicAdditions(db) {
           table.keys.map((column) => row[column]),
         );
         if (existing) {
-          if (!table.columns.every((column) => same(existing[column], row[column]))) {
+          if (!table.columns.every((column) => (
+            mutableColumns[table.table]?.has(column) || same(existing[column], row[column])
+          ))) {
             throw new Error(`Local data migration conflict in ${table.table} (${table.keys.map((key) => `${key}=${row[key]}`).join(', ')})`);
           }
           continue;
@@ -183,7 +217,7 @@ async function seedGeographicAdditions(db) {
     }
 
     let readingId = Number((await tx.get('SELECT COALESCE(MAX(id),0) AS id FROM temperature_readings')).id);
-    for (const shipment of data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2072')) {
+    for (const shipment of data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2086')) {
       const current = await tx.get('SELECT COUNT(*) AS n FROM temperature_readings WHERE shipment_id=?', [shipment.id]);
       if (current.n) continue;
       const readings = data.shipmentReadings[shipment.id] || [];
@@ -220,4 +254,4 @@ async function seedGeographicAdditions(db) {
   return inserted;
 }
 
-module.exports = { seed, clearAll, seedGeographicAdditions };
+module.exports = { seed, clearAll, removeAddedDisruptions, syncDelhiDemandSurge, seedGeographicAdditions };

@@ -33,6 +33,7 @@ import {
   type ShipmentRow,
   type ShipmentsData,
 } from "./api"
+import type { AuthUser } from "./auth"
 
 type Screen = "Overview" | "Disruption Monitor" | "Shipment Intelligence" | "Inventory & Stock Risk" | "AI Recovery Planning" | "Cold-Chain Compliance" | "Approval Centre" | "Execution & Audit Trail"
 type GlobalSearchResult =
@@ -311,13 +312,13 @@ const ALL_DISRUPTION_LOCATIONS: DisruptionLocationItem[] = [
   { code: "INBOM", name: "Mumbai Port", city: "Mumbai", defaultDisruptionType: "FLOOD" },
   { code: "INKOL", name: "Kolkata Port", city: "Kolkata", defaultDisruptionType: "PORT_CONGESTION" },
   { code: "INVIZ", name: "Visakhapatnam Port", city: "Visakhapatnam", defaultDisruptionType: "CYCLONE" },
-  { code: "INHYD", name: "Hyderabad Hub", city: "Hyderabad", defaultDisruptionType: "DENSE_FOG" },
-  { code: "INDEL", name: "Delhi NCR Facility", city: "Delhi NCR", defaultDisruptionType: "DEMAND_SURGE" },
-  { code: "INPUN", name: "Pune DC", city: "Pune", defaultDisruptionType: "POWER_OUTAGE" },
-  { code: "INBLR", name: "Bengaluru Logistics Hub", city: "Bengaluru", defaultDisruptionType: "TRANSIT_DELAY" },
+  { code: "INHYD", name: "Hyderabad Hub", city: "Hyderabad", defaultDisruptionType: "INBOUND_DELAY" },
+  { code: "INDEL", name: "Delhi NCR Facility", city: "Delhi NCR", defaultDisruptionType: "TRANSPORT_DELAY" },
+  { code: "INPUN", name: "Pune DC", city: "Pune", defaultDisruptionType: "TRANSIT_DELAY" },
+  { code: "INBLR", name: "Bengaluru Logistics Hub", city: "Bengaluru", defaultDisruptionType: "TRANSPORT_DELAY" },
 ]
 
-function App() {
+function App({ user }: { user: AuthUser }) {
   const [screen, setScreen] = useState<Screen>("Overview")
   const [menuOpen, setMenuOpen] = useState(false)
   const [selectedShipment, setSelectedShipment] = useState<ShipmentRow | null>(null)
@@ -337,7 +338,9 @@ function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null)
   const [selectedPort, setSelectedPort] = useState<string>("INMAA")
   const [ports, setPorts] = useState<PortItem[]>([])
-  const [disruptionLocations, setDisruptionLocations] = useState<DisruptionLocation[]>([])
+  const [disruptionLocations, setDisruptionLocations] = useState<DisruptionLocation[] | null>(null)
+  const [selectedDisruptionId, setSelectedDisruptionId] = useState("INC-2026-1104-03")
+  const [selectedDisruptionPort, setSelectedDisruptionPort] = useState("INMAA")
   const [toast, setToast] = useState("")
   const [dataVersion, setDataVersion] = useState(0)
   const now = useClock()
@@ -510,10 +513,23 @@ function App() {
   }, [dataVersion])
 
   useEffect(() => {
-    getCurrentPlan(selectedPort)
+    getDisruptionLocations()
+      .then((result) => setDisruptionLocations(result.locations))
+      .catch(() => setDisruptionLocations([]))
+  }, [dataVersion])
+
+  useEffect(() => {
+    if (!disruptionLocations || selectedDisruptionPort === selectedPort) return
+    const location = disruptionLocations.find((item) => item.code === selectedPort)
+    setSelectedDisruptionId(location?.primaryDisruptionId || "")
+    setSelectedDisruptionPort(selectedPort)
+  }, [selectedPort, disruptionLocations, selectedDisruptionPort])
+
+  useEffect(() => {
+    getCurrentPlan(selectedPort, selectedDisruptionId)
       .then((p) => setPlanStatus(p.plan.status))
       .catch(() => setPlanStatus(null))
-  }, [dataVersion, selectedPort])
+  }, [dataVersion, selectedPort, selectedDisruptionId])
 
   const runAssessment = async (disruptionId: string) => {
     setAssessmentRunning(true)
@@ -521,7 +537,7 @@ function App() {
       const result = await runAnalysis(disruptionId)
       refresh()
       notify(result.message || "Impact assessment complete — recovery scenarios generated.")
-      navigate("AI Recovery Planning")
+      if (result.planId) navigate("AI Recovery Planning")
     } catch (e) {
       notify(`Assessment failed: ${(e as Error).message}`)
     } finally {
@@ -532,16 +548,8 @@ function App() {
   const approval: "pending" | "approved" | "rejected" =
     planStatus === "APPROVED" ? "approved" : planStatus === "REJECTED" ? "rejected" : "pending"
 
-  const dbLabel = health
-    ? health.db.engine === "hana"
-      ? "SAP HANA CLOUD"
-      : "LOCAL DEMO DB"
-    : "CONNECTING…"
-  const aiLabel = health
-    ? health.llm.configured
-      ? "GENERATIVE AI HUB"
-      : "TEMPLATE MODE"
-    : "…"
+  const profileName = user.fullName?.trim() || user.email?.trim() || "Supply planner"
+  const profileInitial = profileName.charAt(0).toLocaleUpperCase() || "S"
 
   return (
     <div className="app-shell">
@@ -581,21 +589,11 @@ function App() {
           ))}
         </nav>
         <div className="sidebar-spacer" />
-        <div className="ecosystem-card" title={health ? `${health.db.label} · ${health.llm.label}` : "Connecting to backend…"}>
-          <div>
-            <span className="sap-word">SAP</span>
-            <span className="ecosystem-copy">
-              <b>{dbLabel}</b>
-              <small>HANA · {aiLabel}</small>
-            </span>
-          </div>
-          <span className="live-dot" />
-        </div>
         <div className="user-card">
-          <div className="avatar">AK</div>
+          <div className="avatar">{profileInitial}</div>
           <div>
-            <strong>Arjun Kumar</strong>
-            <span>Supply-chain planner</span>
+            <strong>{profileName}</strong>
+            <span>{user.designation || "Supply-chain planner"}</span>
           </div>
           <Icon name="chevron" size={15} />
         </div>
@@ -746,7 +744,7 @@ function App() {
             >
               <Icon name="bell" size={18} />
             </button>
-            <div className="top-avatar">AK</div>
+            <div className="top-avatar" aria-label={profileName} title={profileName}>{profileInitial}</div>
           </div>
         </header>
 
@@ -766,6 +764,12 @@ function App() {
               runAssessment={runAssessment}
               version={dataVersion}
               selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
+              onSelectDisruption={(id, port) => {
+                setSelectedDisruptionId(id)
+                setSelectedDisruptionPort(port || selectedPort)
+                if (port) setSelectedPort(port)
+              }}
             />
           )}
           {screen === "Shipment Intelligence" && (
@@ -787,10 +791,15 @@ function App() {
               navigate={navigate}
               version={dataVersion}
               selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
             />
           )}
           {screen === "Cold-Chain Compliance" && (
-            <Compliance version={dataVersion} selectedPort={selectedPort} />
+            <Compliance
+              version={dataVersion}
+              selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
+            />
           )}
           {screen === "Approval Centre" && (
             <ApprovalCentre
@@ -808,14 +817,14 @@ function App() {
               navigate={navigate}
               version={dataVersion}
               selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
             />
           )}
           {screen === "Execution & Audit Trail" && (
             <AuditTrail
-              approval={approval}
               version={dataVersion}
-              notify={notify}
               selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
             />
           )}
           <footer>
@@ -875,7 +884,7 @@ function Overview({
     <>
       <SectionHeader
         eyebrow="EXECUTIVE CONTROL TOWER"
-        title="Good evening, Planner"
+        title="Your Supply Chain, Under Control."
         description="Your medical supply network, intelligently protected."
         actions={
           <button
@@ -1434,56 +1443,74 @@ function DisruptionMonitor({
   runAssessment,
   version,
   selectedPort,
+  selectedDisruptionId,
+  onSelectDisruption,
 }: {
   running: boolean
   runAssessment: (id: string) => void
   version: number
   selectedPort?: string
+  selectedDisruptionId: string
+  onSelectDisruption: (id: string, port: string) => void
 }) {
   const [data, setData] = useState<DisruptionDetail | null>(null)
   const [disruptions, setDisruptions] = useState<DisruptionDetail["disruption"][]>([])
-  const [selectedId, setSelectedId] = useState("INC-2026-1104-03")
   const [loadError, setLoadError] = useState("")
-
-  const portToIncident: Record<string, string> = {
-    INMAA: "INC-2026-1104-03",
-    INBOM: "INC-2026-1104-08",
-    INKOL: "INC-2026-1104-09",
-    INVIZ: "INC-2026-1104-10",
-    INHYD: "INC-2026-1104-02",
-    INDEL: "INC-2026-1104-05",
-    INPUN: "INC-2026-1104-06",
-    INBLR: "INC-2026-1104-03",
-  }
-
-  useEffect(() => {
-    if (selectedPort && portToIncident[selectedPort]) {
-      setSelectedId(portToIncident[selectedPort])
-    }
-  }, [selectedPort])
 
   useEffect(() => {
     listDisruptions()
       .then((result) => {
         setDisruptions(result.disruptions)
-        const targetId = (selectedPort && portToIncident[selectedPort]) || selectedId
-        setSelectedId((current) => result.disruptions.some((item) => item.id === targetId)
-          ? targetId : (result.disruptions.some((item) => item.id === current) ? current : (result.disruptions[0]?.id || "")))
+        const selected = result.disruptions.find((item) => item.id === selectedDisruptionId)
+        const target = selected && (!selected.port || selected.port === selectedPort)
+          ? selected
+          : result.disruptions.find((item) => item.port === selectedPort)
+        if (target) {
+          onSelectDisruption(target.id, target.port)
+        } else {
+          onSelectDisruption("", selectedPort || "")
+        }
       })
       .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : "Unable to load disruptions"))
   }, [version, selectedPort])
+
   useEffect(() => {
-    if (!selectedId) return
-    getDisruption(selectedId)
+    if (!selectedDisruptionId) {
+      setData(null)
+      setLoadError("")
+      return
+    }
+    let active = true
+    setData(null)
+    setLoadError("")
+    getDisruption(selectedDisruptionId)
       .then((result) => {
-        setData(result)
-        setLoadError("")
+        if (active) {
+          setData(result)
+          setLoadError("")
+        }
       })
-      .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : "Unable to load disruption details"))
-  }, [selectedId, version])
+      .catch((cause: unknown) => {
+        if (active) setLoadError(cause instanceof Error ? cause.message : "Unable to load disruption details")
+      })
+    return () => { active = false }
+  }, [selectedDisruptionId, version])
+
+  if (!selectedDisruptionId && !loadError) {
+    return <section className="panel" role="status">No disruption data is linked to the selected facility.</section>
+  }
   if (loadError && !data) return <section className="panel"><p role="alert">Disruptions could not be loaded: {loadError}</p></section>
   if (!data) return <Loading label="DISRUPTION MONITOR" />
   const d = data.disruption
+  const impactSummary = data.impact
+    ? `${data.impact.medicine} at ${data.impact.facility_name}: ${data.impact.available} ${data.impact.unit} available, ${data.impact.cover_hours}h cover against ${data.impact.delay_hours}h delay.`
+    : "No stockout risk is identified from linked inventory data."
+  const shipmentSummary = data.affectedShipments.length
+    ? data.affectedShipments.map((shipment) =>
+      `${shipment.id} to ${shipment.destination_label} · ${shipment.status} · ${shipment.eta_text}`,
+    ).join("; ")
+    : "No linked in-transit shipment records."
+  const selectedDisruption = disruptions.find((item) => item.id === selectedDisruptionId)
   return (
     <>
       <SectionHeader
@@ -1492,14 +1519,27 @@ function DisruptionMonitor({
         description="Detect, classify and assess external threats across the medical supply network."
       />
       {disruptions.length > 0 && (
-        <section className="panel" style={{ marginBottom: 18 }}>
-          <label>
+        <section className="panel disruption-select-panel">
+          <label className="disruption-select-field">
             Select disruption
-            <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
-              {disruptions.map((item) => <option key={item.id} value={item.id}>{item.title} · {item.id}</option>)}
-            </select>
+            <span className="disruption-select-control">
+              <select
+                value={selectedDisruptionId}
+                onChange={(event) => {
+                  const item = disruptions.find((disruption) => disruption.id === event.target.value)
+                  if (item) onSelectDisruption(item.id, item.port)
+                }}
+              >
+                {disruptions.map((item) => (
+                  <option key={item.id} value={item.id}>{item.title} · {item.id}</option>
+                ))}
+              </select>
+            </span>
+            {selectedDisruption && (
+              <small className="disruption-select-id">{selectedDisruption.id}</small>
+            )}
           </label>
-          <span className="panel-kicker" style={{ marginLeft: 12 }}>{d.verified ? "Verified source" : "Simulated / unverified"}</span>
+          <span className="panel-kicker">{d.verified ? "Verified source" : "Simulated / unverified"}</span>
         </section>
       )}
       <section className="incident-hero">
@@ -1511,6 +1551,10 @@ function DisruptionMonitor({
           <span className="panel-kicker">FEATURED INCIDENT</span>
           <h2>{d.title}</h2>
           <p>{d.description}</p>
+          <p className="incident-context">
+            <b>Inventory impact:</b> {impactSummary}<br />
+            <b>Linked shipments:</b> {shipmentSummary}
+          </p>
           <div className="incident-metrics">
             <div>
               <Icon name="clock" />
@@ -2189,6 +2233,7 @@ function InventoryRisk({
   }, [filtersOpen])
   if (!data) return <Loading label="INVENTORY INTELLIGENCE" />
   const c = data.critical
+  const actionUrgency = getInventoryActionUrgency(c)
   const activeFilterCount = countInventoryFilters(filters)
   const facilities = [...new Set(data.rows.map((row) => row.facility))].sort()
   const medicines = [...new Set(data.rows.map((row) => row.medicine))].sort()
@@ -2280,9 +2325,15 @@ function InventoryRisk({
             <div>
               <Icon name="alert" size={18} />
               <p>
-                <b>Action required within 6 hours</b>Transfer {c.transferQty}{" "}
-                {c.unit} from {c.donorFacility} to restore {c.restoredCoverDays}{" "}
-                days of cover.
+                <b>{actionUrgency}</b>
+                {Number.isFinite(c.transferQty) &&
+                  c.transferQty > 0 &&
+                  c.donorFacility !== "No donor recommended" && (
+                    <>
+                      Transfer {c.transferQty} {c.unit} from {c.donorFacility}{" "}
+                      to restore {c.restoredCoverDays} days of cover.
+                    </>
+                  )}
               </p>
             </div>
             <button
@@ -2596,21 +2647,85 @@ function countInventoryFilters(filters: InventoryFilters) {
   ].filter(Boolean).length
 }
 
+function getInventoryActionUrgency(critical: InventoryData["critical"]) {
+  const available = Number(critical.available)
+  const dailyDemand = Number(critical.demandPerDay)
+  const replenishmentHours = Number(critical.delayHours)
+  if (
+    !Number.isFinite(available) || available < 0 ||
+    !Number.isFinite(dailyDemand) || dailyDemand <= 0 ||
+    !Number.isFinite(replenishmentHours) || replenishmentHours < 0 ||
+    !critical.priority
+  ) {
+    return "Stock risk assessment requires updated inventory information."
+  }
+
+  const stockoutHours = (available / dailyDemand) * 24
+  const formatHours = (hours: number) => {
+    const rounded = Math.round(hours * 10) / 10
+    if (rounded < 1) return "less than 1 hour"
+    return `${rounded} ${rounded === 1 ? "hour" : "hours"}`
+  }
+
+  if (replenishmentHours >= stockoutHours) {
+    if (critical.priority === "P1") {
+      return `Immediate action required — stockout is expected in ${formatHours(stockoutHours)}, before replenishment arrives.`
+    }
+    return `Action required within ${formatHours(stockoutHours)} — stockout is expected before replenishment arrives.`
+  }
+
+  const remainingCover = stockoutHours - replenishmentHours
+  if (critical.priority === "P1" && remainingCover < stockoutHours / 4) {
+    return `Monitor inventory closely — replenishment is expected in ${formatHours(replenishmentHours)}, near the stockout deadline.`
+  }
+  return `Inventory is currently sufficient — replenishment is expected in ${formatHours(replenishmentHours)}, before stockout in ${formatHours(stockoutHours)}.`
+}
+
 function RecoveryPlanning({
   navigate,
   version,
   selectedPort,
+  selectedDisruptionId,
 }: {
   navigate: (screen: Screen) => void
   version: number
   selectedPort?: string
+  selectedDisruptionId: string
 }) {
   const [data, setData] = useState<PlanData | null>(null)
+  const [loadError, setLoadError] = useState("")
   useEffect(() => {
-    getCurrentPlan(selectedPort).then(setData).catch(() => setData(null))
-  }, [version, selectedPort])
+    let active = true
+    setData(null)
+    setLoadError("")
+    getCurrentPlan(selectedPort, selectedDisruptionId)
+      .then((result) => {
+        if (active) setData(result)
+      })
+      .catch((cause: unknown) => {
+        if (active) setLoadError(cause instanceof Error ? cause.message : "Unable to load the selected recovery plan.")
+      })
+    return () => { active = false }
+  }, [version, selectedPort, selectedDisruptionId])
 
-  if (!data) return <Loading label="AGENTIC RECOVERY" />
+  if (!data && !loadError) return <Loading label="AGENTIC RECOVERY" />
+  if (!data) {
+    return (
+      <>
+        <SectionHeader
+          eyebrow="AGENTIC RECOVERY"
+          title="AI Recovery Command"
+          description="Recovery recommendations are scoped to the selected disruption and facility."
+        />
+        <section className="panel" role="status">
+          <p>{loadError}</p>
+          <button className="button secondary" onClick={() => navigate("Disruption Monitor")}>
+            Open Disruption Monitor
+          </button>
+        </section>
+      </>
+    )
+  }
   const recommended = data.recommended
   const ribbon = data.ribbon
 
@@ -2619,14 +2734,21 @@ function RecoveryPlanning({
   const statusOf = (o: PlanData["options"][number]) =>
     o.recommended ? "RECOMMENDED" : !o.eligible ? "REJECTED" : "HIGH RISK"
   const riskOf = (o: PlanData["options"][number]) =>
-    o.recommended ? "Lowest risk" : o.code === "OPT-C" ? "Stockout likely" : "Low service risk"
+    o.recommended ? "Lowest risk" : o.code === "WAIT" ? "Stockout likely" : !o.eligible ? "Not feasible" : "Low service risk"
+  const scoreOf = (value: number | undefined) =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null
   const barsOf = (o: PlanData["options"][number]) => [
-    o.scores.speed ?? 0,
-    o.scores.cost ?? 0,
-    o.scores.protection ?? 0,
-    o.scores.compliance ?? 0,
+    scoreOf(o.scores.speed),
+    scoreOf(o.scores.cost),
+    scoreOf(o.scores.protection),
+    scoreOf(o.scores.compliance),
   ]
-  const comparisonTone: Record<string, string> = { "OPT-A": "red", "OPT-B": "cyan", "OPT-C": "amber" }
+  const actionableOptions = data.options.filter((option) => option.code !== "WAIT")
+  const feasibleActionableOptions = actionableOptions.filter((option) => Boolean(option.eligible))
+  const insufficientAlternatives = feasibleActionableOptions.length < 2
+  const alternativeReasons = actionableOptions
+    .filter((option) => !option.eligible)
+    .map((option) => `${option.title}: ${recoveryOptionExplanation(option.reason, option.checks)}`)
 
   return (
     <>
@@ -2655,26 +2777,30 @@ function RecoveryPlanning({
           </div>
         ))}
       </section>
-      {recommended && (
-        <section className="recommendation-banner">
-          <div className="recommendation-mark">
-            <Icon name="spark" size={25} />
-          </div>
-          <div>
-            <span>SUPPLYSHIELD RECOMMENDS</span>
-            <h2>{recommended.title}</h2>
-            <p>{recommended.reason}</p>
-          </div>
-          <div className="recommendation-score">
-            <small>RECOMMENDATION SCORE</small>
-            <b>{data.plan.score}</b>
-            <span>/100</span>
-          </div>
+      <section className="recommendation-banner">
+        <div className="recommendation-mark">
+          <Icon name="spark" size={25} />
+        </div>
+        <div>
+          <span>{recommended ? "SUPPLYSHIELD RECOMMENDS" : "NO FEASIBLE RECOVERY OPTION"}</span>
+          <h2>{recommended ? recommended.title : "Manual intervention required"}</h2>
+          <p>
+            {recommended
+              ? recommended.reason
+              : "No recovery scenario passed all inventory, logistics, deadline, and compliance checks."}
+          </p>
+        </div>
+        <div className="recommendation-score">
+          <small>RECOMMENDATION SCORE</small>
+          <b>{data.plan.score}</b>
+          <span>/100</span>
+        </div>
+        {recommended && (
           <button className="button light" onClick={() => navigate("Approval Centre")}>
             Review for approval <Icon name="arrow" size={15} />
           </button>
-        </section>
-      )}
+        )}
+      </section>
       <section className="scenario-grid">
         {data.options.map((o) => (
           <ScenarioCard
@@ -2686,44 +2812,64 @@ function RecoveryPlanning({
             eta={o.eta_hours >= 48 ? "48+ hours" : `${o.eta_hours} hours`}
             cost={`$${Number(o.cost_usd).toLocaleString("en-US")}`}
             risk={riskOf(o)}
-            compliance={o.eligible ? "Passed" : "Failed"}
-            reason={o.reason}
+            compliance={o.compliant ? "Passed" : "Failed"}
+            reason={recoveryOptionExplanation(o.reason, o.checks, Boolean(o.eligible))}
             bars={barsOf(o)}
           />
         ))}
       </section>
-      <section className="panel comparison-panel">
-        <div className="panel-heading">
-          <div>
-            <span className="panel-kicker">NORMALIZED TRADE-OFF ANALYSIS</span>
-            <h2>Scenario comparison</h2>
-          </div>
-          <span className="model-note">Values computed by the scoring engine from database records</span>
-        </div>
-        <div className="comparison-chart">
-          <div className="comparison-labels">
-            <span>Speed</span>
-            <span>Cost efficiency</span>
-            <span>Service protection</span>
-            <span>Compliance</span>
-          </div>
-          {data.options.map((o) => (
-            <div className="comparison-row" key={o.id}>
-              <b>{o.code === "OPT-C" ? "Wait" : o.title}</b>
-              <div>
-                {barsOf(o).map((value, i) => (
-                  <span key={i}>
-                    <i className={comparisonTone[o.code] || "cyan"} style={{ width: `${value}%` }} />
-                    <small>{value}</small>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {insufficientAlternatives && (
+        <p className="recovery-availability-note" role="status">
+          Only {feasibleActionableOptions.length} of 2 actionable recovery alternatives are feasible.
+          {alternativeReasons.length > 0
+            ? ` ${alternativeReasons.join(" ")}`
+            : " No additional eligible route or donor is present in the linked data."}
+        </p>
+      )}
     </>
   )
+}
+
+function recoveryOptionExplanation(
+  reason: string,
+  checks: { label: string; pass: number | boolean; note: string }[] = [],
+  eligible = false,
+) {
+  if (eligible) {
+    return "An alternative recovery strategy offers better delivery reliability and lower supply interruption risk."
+  }
+
+  const failedEvidence = checks
+    .filter((check) => !check.pass)
+    .map((check) => `${check.label}: ${check.note}`)
+    .join(" ")
+  const evidence = `${failedEvidence} ${reason}`.toLocaleLowerCase()
+
+  if (/no inventory record/.test(evidence)) {
+    return "The proposed source cannot meet the required medicine quantity, so this recovery option is not recommended."
+  }
+  if (/insufficient transferable stock|safety stock|safety-stock|below.*reserve|below safety/.test(evidence)) {
+    return "The selected distribution centre does not have sufficient transferable stock while maintaining its required safety inventory."
+  }
+  if (/deadline|projected stockout|stock cover|stockout|replenishment arrives|eta .* after/.test(evidence)) {
+    return "This option is not recommended because the estimated delivery time exceeds the medicine replenishment deadline."
+  }
+  if (/batch validity|batch .*expired|expiry|expired/.test(evidence)) {
+    return "This recovery option does not meet the required medicine batch validity conditions."
+  }
+  if (/reefer vehicle|vehicle is assigned|vehicle available|no qualified reefer/.test(evidence)) {
+    return "This option is not recommended because suitable temperature-controlled transportation is unavailable."
+  }
+  if (/route|corridor|road access|transportation route/.test(evidence)) {
+    return "This option is not recommended because the proposed transportation route is affected by the current disruption."
+  }
+  if (/temperature|cold.chain|carrier|warehouse qualification|storage.temperature|power outage/.test(evidence)) {
+    return "This option cannot be recommended because the required temperature-controlled storage or transportation conditions cannot be guaranteed."
+  }
+  if (/compliance|mandatory|hard rule|not compliant/.test(evidence)) {
+    return "This recovery option does not satisfy all mandatory pharmaceutical safety and compliance requirements."
+  }
+  return "This option cannot currently be recommended because its operational feasibility has not been established."
 }
 
 function ScenarioCard({
@@ -2747,7 +2893,7 @@ function ScenarioCard({
   risk: string
   compliance: string
   reason: string
-  bars: number[]
+  bars: (number | null)[]
 }) {
   return (
     <article className={`scenario-card ${tone}`}>
@@ -2777,12 +2923,13 @@ function ScenarioCard({
         </div>
       </div>
       <div className="scenario-bars">
-        {["Speed", "Cost", "Protection", "Compliance"].map((label, index) => (
+        {["Speed", "Cost efficiency", "Service protection", "Compliance"].map((label, index) => (
           <div key={label}>
             <span>{label}</span>
-            <i>
-              <b style={{ width: `${bars[index]}%` }} />
+            <i aria-label={`${label}: ${bars[index] === null ? "unavailable" : `${bars[index]} out of 100`}`}>
+              <b style={{ width: bars[index] === null ? "0%" : `${bars[index]}%` }} />
             </i>
+            <small>{bars[index] === null ? "N/A" : bars[index]}</small>
           </div>
         ))}
       </div>
@@ -2807,11 +2954,24 @@ function ScenarioCard({
   )
 }
 
-function Compliance({ version, selectedPort }: { version: number; selectedPort?: string }) {
+function Compliance({
+  version,
+  selectedPort,
+  selectedDisruptionId,
+}: {
+  version: number
+  selectedPort?: string
+  selectedDisruptionId: string
+}) {
   const [data, setData] = useState<ComplianceData | null>(null)
   useEffect(() => {
-    getCompliance(selectedPort).then(setData).catch(() => setData(null))
-  }, [version, selectedPort])
+    let active = true
+    setData(null)
+    getCompliance(selectedPort, selectedDisruptionId)
+      .then((result) => { if (active) setData(result) })
+      .catch(() => { if (active) setData(null) })
+    return () => { active = false }
+  }, [version, selectedPort, selectedDisruptionId])
 
   if (!data) return <Loading label="PHARMACEUTICAL GOVERNANCE" />
   const t = data.telemetry
@@ -2822,7 +2982,9 @@ function Compliance({ version, selectedPort }: { version: number; selectedPort?:
       <SectionHeader
         eyebrow="PHARMACEUTICAL GOVERNANCE"
         title="Cold-Chain Safety & Compliance"
-        description="Validate temperature integrity, carrier eligibility and batch controls before any recovery action."
+        description={data.plan
+          ? `Plan ${data.plan.id} · disruption ${data.plan.disruptionId} · validate temperature integrity, carrier eligibility and batch controls before any recovery action.`
+          : "Validate temperature integrity, carrier eligibility and batch controls before any recovery action."}
       />
       <section className="compliance-summary">
         <div className="compliance-gauge">
@@ -2972,12 +3134,25 @@ function Compliance({ version, selectedPort }: { version: number; selectedPort?:
       <section className="validation-grid">
         {data.validations.map((v) => (
           <ValidationCard
-            key={v.title}
+            key={v.id}
             title={v.title}
+            detail={`Option ${v.id} · ${v.medicine} · ${v.qty} ${v.unit} from ${v.donorWarehouse} · ETA ${v.etaHours}h · $${v.costUsd.toLocaleString("en-US")}`}
             status={v.status}
             tone={v.tone}
-            checks={v.checks.map((c) => [c.label, c.pass] as [string, boolean])}
-            reason={v.reason}
+            recommendationStatus={v.id === data.plan?.recommendedOptionId
+              && v.recommendationStatus === "RECOMMENDED"
+              ? "AI RECOMMENDED"
+              : v.recommendationStatus}
+            recommendationTone={v.recommendationTone}
+            checks={v.checks.map((check) => ({
+              ...check,
+              note: check.pass ? check.note : recoveryOptionExplanation(check.note, [check]),
+            }))}
+            reason={recoveryOptionExplanation(
+              v.reason,
+              v.checks,
+              v.recommendationStatus === "HIGH RISK",
+            )}
           />
         ))}
       </section>
@@ -3007,15 +3182,21 @@ function shortTime(ts: string | undefined) {
 
 function ValidationCard({
   title,
+  detail,
   status,
   tone,
+  recommendationStatus,
+  recommendationTone,
   checks,
   reason,
 }: {
   title: string
+  detail: string
   status: string
   tone: string
-  checks: [string, boolean][]
+  recommendationStatus: string
+  recommendationTone: string
+  checks: { label: string; pass: boolean; note: string }[]
   reason: string
 }) {
   return (
@@ -3024,20 +3205,26 @@ function ValidationCard({
         <div>
           <span className="panel-kicker">RECOVERY OPTION</span>
           <h2>{title}</h2>
+          <small className="validation-option-detail">{detail}</small>
         </div>
-        <span className="validation-status">
-          <Icon name={tone === "passed" ? "check" : "close"} size={18} />
-          {status}
-        </span>
+        <div className="validation-verdicts">
+          <span className="validation-status">
+            <Icon name={tone === "passed" ? "check" : "close"} size={18} />
+            {status}
+          </span>
+          <span className={`option-recommendation ${recommendationTone}`}>
+            {recommendationStatus}
+          </span>
+        </div>
       </div>
       <div className="validation-checks">
-        {checks.map(([label, pass]) => (
+        {checks.map(({ label, pass, note }) => (
           <div key={label}>
             <span className={pass ? "pass" : "fail"}>
               <Icon name={pass ? "check" : "close"} size={14} />
             </span>
             <b>{label}</b>
-            <small>{pass ? "Verified" : "Not verified"}</small>
+            <small>{pass ? "Verified" : note || "Not verified"}</small>
           </div>
         ))}
       </div>
@@ -3059,6 +3246,7 @@ function ApprovalCentre({
   navigate,
   version,
   selectedPort,
+  selectedDisruptionId,
 }: {
   approval: "pending" | "approved" | "rejected"
   onDecision: (status: "APPROVED" | "REJECTED") => void
@@ -3066,18 +3254,45 @@ function ApprovalCentre({
   navigate: (screen: Screen) => void
   version: number
   selectedPort?: string
+  selectedDisruptionId: string
 }) {
   const [data, setData] = useState<PlanData | null>(null)
-  const [inventory, setInventory] = useState<InventoryData | null>(null)
   const [comment, setComment] = useState("")
   const [busy, setBusy] = useState(false)
+  const [loadError, setLoadError] = useState("")
 
   useEffect(() => {
-    getCurrentPlan(selectedPort).then(setData).catch(() => setData(null))
-    getInventory(selectedPort).then(setInventory).catch(() => setInventory(null))
-  }, [version, selectedPort])
+    let active = true
+    setData(null)
+    setLoadError("")
+    getCurrentPlan(selectedPort, selectedDisruptionId)
+      .then((result) => {
+        if (active) setData(result)
+      })
+      .catch((cause: unknown) => {
+        if (active) setLoadError(cause instanceof Error ? cause.message : "Unable to load the selected recovery plan.")
+      })
+    return () => { active = false }
+  }, [version, selectedPort, selectedDisruptionId])
 
-  if (!data) return <Loading label="HUMAN GOVERNANCE" />
+  if (!data && !loadError) return <Loading label="HUMAN GOVERNANCE" />
+  if (!data) {
+    return (
+      <>
+        <SectionHeader
+          eyebrow="HUMAN GOVERNANCE"
+          title="Recovery Plan Approval"
+          description="Only a plan generated for the selected disruption can be reviewed or approved."
+        />
+        <section className="panel" role="status">
+          <p>{loadError}</p>
+          <button className="button secondary" onClick={() => navigate("Disruption Monitor")}>
+            Open Disruption Monitor
+          </button>
+        </section>
+      </>
+    )
+  }
   const rec = data.recommended
   const passedChecks = rec ? rec.checks.filter((c) => c.pass).length : 0
   const totalChecks = rec ? rec.checks.length : 0
@@ -3087,10 +3302,12 @@ function ApprovalCentre({
     setBusy(true)
     try {
       if (decision === "approved") {
-        await approvePlan(data.plan.id, comment)
+        if (!rec) throw new Error("The selected recovery plan has no recommended option.")
+        await approvePlan(data.plan.id, rec.id, comment)
         onDecision("APPROVED")
       } else {
-        await rejectPlan(data.plan.id, comment)
+        if (!rec) throw new Error("The selected recovery plan has no recommended option.")
+        await rejectPlan(data.plan.id, rec.id, comment)
         onDecision("REJECTED")
       }
     } catch (e) {
@@ -3101,15 +3318,15 @@ function ApprovalCentre({
   }
 
   const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Donor Warehouse"
-  const medicineName = inventory?.critical.medicine || "units"
+  const impact = data.impact
   const facts: [string, string, IconName][] = [
     ["Disruption", data.disruption.title, "alert"],
     [
       "Medicine urgency",
-      inventory ? `Critical · stockout in ${Math.round(inventory.critical.stockoutHours)}h` : "Critical",
+      impact ? `Critical · stockout in ${Math.round(impact.cover_hours)}h` : "Unavailable",
       "medicine",
     ],
-    ["Transfer quantity", rec ? `${rec.qty} ${medicineName} units` : "—", "box"],
+    ["Transfer quantity", rec ? `${rec.qty} ${impact?.unit || "units"}` : "—", "box"],
     ["Donor warehouse", donorFrom, "inventory"],
     ["Estimated delivery", rec ? `${rec.eta_hours} hours` : "—", "clock"],
     ["Estimated cost", rec ? `$${Number(rec.cost_usd).toLocaleString("en-US")}` : "—", "document"],
@@ -3153,8 +3370,12 @@ function ApprovalCentre({
           <div className="approval-title">
             <div>
               <span className="panel-kicker">RECOMMENDED RECOVERY PLAN · {data.plan.id}</span>
-              <h2>Bengaluru stock transfer</h2>
-              <p>Emergency inventory transfer to protect insulin continuity at St. Martha Hospital.</p>
+              <h2>{rec?.title || "Manual intervention required"}</h2>
+              <p>
+                {rec
+                  ? `Recovery action for ${impact?.medicine || "the affected medicine"} at ${impact?.facility_name || "the affected facility"}.`
+                  : "No compliant recovery option is available for this disruption."}
+              </p>
             </div>
             <div className="score-chip">
               <Icon name="spark" size={18} />
@@ -3207,7 +3428,7 @@ function ApprovalCentre({
           <div className="approval-actions">
             <button
               className="button reject"
-              disabled={approval !== "pending" || busy}
+              disabled={approval !== "pending" || busy || !rec}
               onClick={() => decide("rejected")}
             >
               <Icon name="close" size={17} />
@@ -3215,7 +3436,7 @@ function ApprovalCentre({
             </button>
             <button
               className="button approve"
-              disabled={approval !== "pending" || busy}
+              disabled={approval !== "pending" || busy || !rec}
               onClick={() => decide("approved")}
             >
               <Icon name="check" size={17} />
@@ -3289,149 +3510,103 @@ function ApprovalCentre({
 }
 
 function AuditTrail({
-  approval,
   version,
-  notify,
   selectedPort,
+  selectedDisruptionId,
 }: {
-  approval: "pending" | "approved" | "rejected"
   version: number
-  notify: (message: string) => void
   selectedPort?: string
+  selectedDisruptionId: string
 }) {
   const [data, setData] = useState<AuditData | null>(null)
   useEffect(() => {
-    getAudit(selectedPort).then(setData).catch(() => setData(null))
-  }, [version, approval, selectedPort])
+    let active = true
+    setData(null)
+    getAudit(selectedPort, selectedDisruptionId)
+      .then((result) => { if (active) setData(result) })
+      .catch(() => { if (active) setData(null) })
+    return () => { active = false }
+  }, [version, selectedPort, selectedDisruptionId])
 
   if (!data) return <Loading label="TRACEABILITY" />
-  const approved = approval === "approved"
   const plan = data.plan
+  const exportData = {
+    disruptionId: data.disruptionId,
+    plan,
+    agentHistory: data.agentHistory,
+    humanReview: data.humanReview,
+  }
 
   return (
     <>
       <SectionHeader
         eyebrow="TRACEABILITY"
-        title="Execution & Decision History"
-        description="A complete, explainable record from disruption detection through human authorization."
+        title="Execution & Audit Trail"
+        description={`Five-agent execution and human review history for disruption ${selectedDisruptionId || "not selected"}.`}
         actions={
-          <button className="button secondary" onClick={() => downloadJson("supplyshield-audit-trail.json", data)}>
+          <button className="button secondary" onClick={() => downloadJson("supplyshield-audit-trail.json", exportData)}>
             <Icon name="download" size={16} />
-            Export audit package
+            Export history
           </button>
         }
       />
-      <section className="audit-summary">
-        <div>
-          <span className={`execution-state ${approved ? "success" : "pending"}`}>
-            <Icon name={approved ? "check" : "clock"} size={22} />
-          </span>
-          <div>
-            <small>RECOVERY PLAN {plan?.id ?? "—"}</small>
-            <h2>{approved ? "Approved · simulated execution ready" : "Awaiting planner authorization"}</h2>
-            <p>
-              {approved && plan
-                ? `${plan.recommendedTitle ?? "Stock transfer"} · ${plan.qty} units · ${plan.destination}`
-                : "No downstream action has been initiated."}
-            </p>
-          </div>
-        </div>
-        <div className="audit-meta">
-          <span>
-            <small>Planner</small>
-            <b>{approved && plan?.planner ? plan.planner : "—"}</b>
-          </span>
-          <span>
-            <small>Decision timestamp</small>
-            <b>{approved && plan?.decidedAt ? formatIst(plan.decidedAt) : "Pending"}</b>
-          </span>
-          <span>
-            <small>Correlation ID</small>
-            <b>{plan?.correlationId ?? "—"}</b>
-          </span>
-        </div>
-      </section>
-      {data.execution.simulated && (
-        <div className="simulation-notice">
-          <Icon name="alert" size={17} />
-          <p>
-            <b>SIMULATED EXECUTION</b>No real SAP S/4HANA inventory or logistics transaction has been
-            performed. This prototype records the intended actions and trace evidence only.
-          </p>
-        </div>
-      )}
       <section className="audit-layout">
         <article className="panel audit-timeline-panel">
           <div className="panel-heading">
             <div>
-              <span className="panel-kicker">CHRONOLOGICAL TRACE</span>
-              <h2>Decision history</h2>
+              <span className="panel-kicker">AGENT EXECUTION HISTORY</span>
+              <h2>Five-agent pipeline</h2>
             </div>
-            <StatusPill tone="live">IMMUTABLE LOG</StatusPill>
+            <StatusPill tone="live">{plan ? `PLAN ${plan.id}` : "NO PLAN"}</StatusPill>
           </div>
           <div className="audit-timeline">
-            {data.events.map((event, index) => (
-              <div className={`audit-event ${event.state}`} key={`${event.title}-${index}`}>
-                <time>{event.time}</time>
+            {data.agentHistory.length ? data.agentHistory.map((event) => (
+              <div className="audit-event complete" key={event.id}>
+                <time>{formatIst(event.timestamp)}</time>
+                <span className="audit-icon"><Icon name="check" size={16} /></span>
+                <div>
+                  <div><b>{event.name}</b><span>{event.status}</span></div>
+                  <p>{event.action} {event.result}</p>
+                </div>
+              </div>
+            )) : (
+              <p className="audit-history-empty">No execution history available for this disruption yet.</p>
+            )}
+          </div>
+        </article>
+        <article className="panel audit-timeline-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">HUMAN REVIEW HISTORY</span>
+              <h2>Planner decisions</h2>
+            </div>
+            <StatusPill tone={data.humanReview.some((review) => review.decision === "PENDING") ? "warning" : "live"}>
+              {data.humanReview.some((review) => review.decision === "PENDING") ? "AWAITING REVIEW" : "REVIEW RECORDS"}
+            </StatusPill>
+          </div>
+          <div className="audit-timeline">
+            {data.humanReview.length ? data.humanReview.map((review) => (
+              <div
+                className={`audit-event ${review.decision === "APPROVED" ? "approved" : review.decision === "PENDING" ? "active" : "critical"}`}
+                key={review.id}
+              >
+                <time>{review.timestamp ? formatIst(review.timestamp) : "Pending"}</time>
                 <span className="audit-icon">
-                  <Icon name={event.icon as IconName} size={16} />
+                  <Icon name={review.decision === "APPROVED" ? "check" : review.decision === "PENDING" ? "clock" : "close"} size={16} />
                 </span>
                 <div>
                   <div>
-                    <b>{event.title}</b>
-                    <span>{event.actor}</span>
+                    <b>{review.decision === "PENDING" ? "Awaiting human review" : `Plan ${review.decision.toLocaleLowerCase()}`}</b>
+                    <span>{review.reviewer || "No reviewer yet"}</span>
                   </div>
-                  <p>{event.text}</p>
+                  <p>Recovery plan {review.planId} · {review.comment || "No planner comment recorded."}</p>
                 </div>
-                <button
-                  aria-label="Inspect event"
-                  onClick={() =>
-                    notify(event.hash ? `SHA-256 ${event.hash.slice(0, 20)}…` : "No hash recorded for this event.")
-                  }
-                >
-                  <Icon name="chevron" size={15} />
-                </button>
               </div>
-            ))}
+            )) : (
+              <p className="audit-history-empty">No human review history is available for this disruption yet.</p>
+            )}
           </div>
         </article>
-        <aside className="audit-side">
-          <article className="panel execution-card">
-            <div className="panel-heading">
-              <div>
-                <span className="panel-kicker">EXECUTION REFERENCES</span>
-                <h2>Planned actions</h2>
-              </div>
-            </div>
-            {[
-              ["Transfer reference", approved ? data.execution.transferReference : "Pending"],
-              ["Source storage", data.execution.sourceStorage],
-              ["Destination", data.execution.destination],
-              ["Reefer vehicle", data.execution.reefer],
-              ["Expected arrival", approved ? data.execution.expectedArrival : `T+${data.execution.expectedArrival}`],
-            ].map(([label, value]) => (
-              <div className="reference-row" key={label}>
-                <span>{label}</span>
-                <b>{value}</b>
-              </div>
-            ))}
-          </article>
-          <article className="panel integrity-card">
-            <Icon name="shield" size={25} />
-            <h2>{data.integrity.valid ? "Audit integrity verified" : "Audit integrity check failed"}</h2>
-            <p>
-              {data.integrity.valid
-                ? "All agent outputs, rule checks and human actions share one correlation ID and are persisted with hash-chained timestamps."
-                : "The hash chain could not be verified. Investigate the audit log before proceeding."}
-            </p>
-            <div>
-              <span>EVENTS</span>
-              <b>{String(data.integrity.events).padStart(2, "0")}</b>
-              <span>CHAIN BREAKS</span>
-              <b>{data.integrity.valid ? "00" : "01"}</b>
-            </div>
-          </article>
-        </aside>
       </section>
     </>
   )

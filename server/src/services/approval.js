@@ -24,16 +24,20 @@ async function revalidate(db, option, plan) {
       ? await db.get('SELECT * FROM carriers WHERE code = ?', [option.carrier_code]) : null;
     const r1c = rules.ruleColdChain(product, carrier);
     if (!r1c.pass) reasons.push(r1c.note);
-    if (option.source_code) {
-      const source = await db.get('SELECT * FROM facilities WHERE code = ?', [option.source_code]);
-      if (source && source.type !== 'SUPPLIER') {
-        const inv = await db.get(
-          'SELECT * FROM inventory WHERE facility_code = ? AND product_sku = ?',
-          [option.source_code, impact.primary.product_sku],
-        );
-        const r2c = rules.ruleSafetyStock(inv, option.qty, option.source_code);
-        if (!r2c.pass) reasons.push(r2c.note);
+    const batchCheck = rules.checkBatchValidity(product);
+    if (!batchCheck.pass) reasons.push(batchCheck.note);
+    if (!option.source_code) {
+      reasons.push('R2 FAIL: transfer source is missing');
+    } else {
+      if (option.source_code === impact.primary.facility_code) {
+        reasons.push('R2 FAIL: source cannot be the affected facility');
       }
+      const inv = await db.get(
+        'SELECT * FROM inventory WHERE facility_code = ? AND product_sku = ?',
+        [option.source_code, impact.primary.product_sku],
+      );
+      const r2c = rules.ruleSafetyStock(inv, option.qty, option.source_code);
+      if (!r2c.pass) reasons.push(r2c.note);
     }
   }
   const r3c = rules.ruleDeadline(option.eta_hours, impact.primary.cover_hours);

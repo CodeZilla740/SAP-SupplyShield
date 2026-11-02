@@ -38,11 +38,15 @@ test('carrier certification validation (R1)', () => {
 
 test('safety-stock validation (R2)', () => {
   // Bengaluru: 1420 - 240 = 1180 >= safety 1000 -> PASS
-  assert.equal(rules.ruleSafetyStock({ qty_on_hand: 1420, safety_stock: 1000 }, 240, 'WH-BLR').pass, true);
+  assert.equal(rules.ruleSafetyStock({ qty_on_hand: 1420, reserved_qty: 0, safety_stock: 1000 }, 240, 'WH-BLR').pass, true);
   // Hyderabad: 600 - 240 = 360 < safety 450 -> FAIL
-  const hyd = rules.ruleSafetyStock({ qty_on_hand: 600, safety_stock: 450 }, 240, 'WH-HYD');
+  const hyd = rules.ruleSafetyStock({ qty_on_hand: 600, reserved_qty: 0, safety_stock: 450 }, 240, 'WH-HYD');
   assert.equal(hyd.pass, false);
   assert.match(hyd.note, /below safety stock/);
+  const reserved = rules.ruleSafetyStock(
+    { qty_on_hand: 1420, reserved_qty: 200, safety_stock: 1000 }, 240, 'WH-BLR',
+  );
+  assert.equal(reserved.pass, false);
 });
 
 test('deadline validation (R3)', () => {

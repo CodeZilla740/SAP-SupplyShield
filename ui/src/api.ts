@@ -213,6 +213,7 @@ export interface DisruptionDetail {
   demo: boolean
   disruption: {
     id: string
+    port: string
     type: string
     title: string
     severity: string
@@ -228,6 +229,26 @@ export interface DisruptionDetail {
   }
   timeline: { ts: string; title: string; text: string; state: string }[]
   infrastructure: { label: string; status: string; tone: string; icon: string }[]
+  impact: {
+    facility_code: string
+    facility_name: string
+    medicine: string
+    available: number
+    unit: string
+    cover_hours: number
+    delay_hours: number
+    transfer_qty: number
+    at_risk: boolean
+  } | null
+  affectedShipments: {
+    id: string
+    origin_label: string
+    destination_label: string
+    status: string
+    risk: string
+    eta_text: string
+    medicine: string
+  }[]
 }
 
 export interface ShipmentRow {
@@ -265,6 +286,7 @@ export interface InventoryData {
   critical: {
     medicine: string
     facility: string
+    priority: string
     available: number
     unit: string
     demandPerDay: number
@@ -294,6 +316,7 @@ export interface RecoveryOption {
   id: string
   code: string
   title: string
+  source_code: string | null
   qty: number
   cost_usd: number
   eta_hours: number
@@ -314,6 +337,7 @@ export interface PlanData {
     status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED"
     run_id: string
     correlation_id: string
+    recommended_option_id: string | null
     score: number
     explanation: string
     explanation_source: string
@@ -323,12 +347,28 @@ export interface PlanData {
   }
   options: RecoveryOption[]
   recommended: RecoveryOption | null
-  disruption: { title: string; severity: string }
+  disruption: { id: string; port: string; title: string; severity: string }
+  impact: {
+    facility_code: string
+    facility_name: string
+    product_sku: string
+    medicine: string
+    available: number
+    daily_usage: number
+    cover_hours: number
+    transfer_qty: number
+    unit: string
+  } | null
   ribbon: AgentStatus[]
 }
 
 export interface ComplianceData {
   demo: boolean
+  plan: {
+    id: string
+    disruptionId: string
+    recommendedOptionId: string | null
+  } | null
   networkCompliance: number
   range: { min: number; max: number; label: string }
   appliesTo: string
@@ -354,16 +394,27 @@ export interface ComplianceData {
     note: string
   }
   validations: {
+    id: string
+    code: string
     title: string
+    medicine: string
+    donorWarehouse: string
+    qty: number
+    unit: string
+    etaHours: number
+    costUsd: number
     status: string
     tone: string
-    checks: { label: string; pass: boolean }[]
+    recommendationStatus: string
+    recommendationTone: string
+    checks: { label: string; pass: boolean; note: string }[]
     reason: string
   }[]
 }
 
 export interface AuditData {
   demo: boolean
+  disruptionId: string | null
   plan: {
     id: string
     status: string
@@ -374,6 +425,22 @@ export interface AuditData {
     planner: string | null
     decidedAt: string | null
   } | null
+  agentHistory: {
+    id: string
+    name: string
+    timestamp: string
+    action: string
+    result: string
+    status: string
+  }[]
+  humanReview: {
+    id: string
+    planId: string
+    reviewer: string | null
+    timestamp: string | null
+    decision: string
+    comment: string
+  }[]
   events: {
     time: string
     title: string
@@ -418,7 +485,7 @@ export const listDisruptions = () =>
 export const getDisruption = (id: string) =>
   expressReq<DisruptionDetail>(`/disruptions/${encodeURIComponent(id)}`)
 export const runAnalysis = (id: string) =>
-  expressReq<{ message: string; planId: string; optionsGenerated: number }>(
+  expressReq<{ message: string; planId?: string | null; optionsGenerated: number }>(
     `/disruptions/${encodeURIComponent(id)}/run-analysis`, { method: "POST", body: "{}" },
   )
 export const createDisruption = (body: {
@@ -437,29 +504,43 @@ export const getShipment = (id: string) =>
   expressReq<ShipmentDetail>(`/shipments/${encodeURIComponent(id)}`)
 export const getInventory = (port?: string) =>
   expressReq<InventoryData>(`/inventory${port ? `?port=${encodeURIComponent(port)}` : ""}`)
-export const getCurrentPlan = (port?: string) =>
-  expressReq<PlanData>(`/recovery-plans/current${port ? `?port=${encodeURIComponent(port)}` : ""}`)
+export const getCurrentPlan = (port?: string, disruptionId?: string) => {
+  const params = new URLSearchParams()
+  if (port) params.set("port", port)
+  if (disruptionId !== undefined) params.set("disruptionId", disruptionId)
+  const query = params.toString()
+  return expressReq<PlanData>(`/recovery-plans/current${query ? `?${query}` : ""}`)
+}
 export const getRecoveryPlan = (id: string) =>
   expressReq<PlanData>(`/recovery-plans/${encodeURIComponent(id)}`)
-export const approvePlan = (id: string, comment: string) =>
+export const approvePlan = (id: string, optionId: string, comment: string) =>
   expressReq<{ status: string; executionNote: string }>(
     `/recovery-plans/${encodeURIComponent(id)}/approve`,
-    { method: "POST", body: JSON.stringify({ comment }) },
+    { method: "POST", body: JSON.stringify({ optionId, comment }) },
   )
-export const rejectPlan = (id: string, comment: string) =>
+export const rejectPlan = (id: string, optionId: string, comment: string) =>
   expressReq<{ status: string }>(
     `/recovery-plans/${encodeURIComponent(id)}/reject`,
-    { method: "POST", body: JSON.stringify({ comment }) },
+    { method: "POST", body: JSON.stringify({ optionId, comment }) },
   )
 export const approveOption = (optionId: string, comment: string) =>
   expressReq<{ status: string; executionNote: string }>(
     `/recovery-options/${encodeURIComponent(optionId)}/approve`,
     { method: "POST", body: JSON.stringify({ optionId, comment }) },
   )
-export const getCompliance = (port?: string) =>
-  expressReq<ComplianceData>(`/compliance${port ? `?port=${encodeURIComponent(port)}` : ""}`)
-export const getAudit = (port?: string) =>
-  expressReq<AuditData>(`/audit${port ? `?port=${encodeURIComponent(port)}` : ""}`)
+export const getCompliance = (port?: string, disruptionId?: string) => {
+  const params = new URLSearchParams()
+  if (port) params.set("port", port)
+  if (disruptionId) params.set("disruptionId", disruptionId)
+  const query = params.toString()
+  return expressReq<ComplianceData>(`/compliance${query ? `?${query}` : ""}`)
+}
+export const getAudit = (port?: string, disruptionId?: string) => {
+  const query = new URLSearchParams()
+  if (port) query.set("port", port)
+  if (disruptionId !== undefined) query.set("disruptionId", disruptionId)
+  return expressReq<AuditData>(`/audit${query.size ? `?${query}` : ""}`)
+}
 
 export function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })

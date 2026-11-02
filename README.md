@@ -70,9 +70,11 @@ npm run build        # builds the React UI into ui/dist
 npm start            # serves API + built UI on http://localhost:4004
 ```
 
-First boot seeds one canonical demo scenario (clearly labelled as simulated)
-and runs the five-agent pipeline once, so every screen shows real computed
-data immediately.
+First boot seeds the canonical and regional demo scenarios (clearly labelled
+as simulated) and runs the five-agent pipeline for each supported location.
+Existing local SQLite databases receive the missing regional rows through an
+idempotent seed migration; recovery options are calculated from the linked
+inventory, shipment, lane, carrier, and compliance data.
 
 Development mode (hot reload):
 
@@ -203,7 +205,7 @@ container binding, not a newly created HANA database instance.
 | `POST /api/disruptions/:id/run-analysis` | Runs the five-agent pipeline |
 | `GET /api/shipments` · `GET /api/shipments/:id` | Shipment list + telemetry |
 | `GET /api/inventory` | Stock positions, cover hours, transfer math |
-| `GET /api/recovery-plans/current` · `GET /api/recovery-plans/:id` | Plans + scored options |
+| `GET /api/recovery-plans/current?port=...&disruptionId=...` · `GET /api/recovery-plans/:id` | Selected-context plans + scored options (no cross-port fallback) |
 | `POST /api/recovery-plans/:id/approve` · `.../reject` | Human decision (server re-validates R1–R3) |
 | `GET /api/compliance` | Network compliance, telemetry, batch record, rule results |
 | `GET /api/audit` | Hash-chained event log + integrity verification |

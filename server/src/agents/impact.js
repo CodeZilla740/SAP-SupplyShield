@@ -28,20 +28,42 @@ async function run(db, disruption, sensing) {
   const facilities = await db.all('SELECT * FROM facilities');
   const facilitiesByCode = Object.fromEntries(facilities.map((f) => [f.code, f]));
 
-  // Assess the inventory position at the destination of every affected
-  // shipment (facility + product), once each.
-  const seen = new Set();
-  const risks = [];
+  // Keep the most delayed linked shipment for each destination and product.
+  // Multiple replenishments can serve the same stock position.
+  const shipmentsByRisk = new Map();
   for (const ship of affectedShipments) {
+    if (!ship.destination_code) continue;
     const key = `${ship.destination_code}|${ship.product_sku}`;
-    if (seen.has(key) || !ship.destination_code) continue;
-    seen.add(key);
+    const delayHours = ship.delay_hours > 0 ? ship.delay_hours : sensing.delayHours;
+    const existing = shipmentsByRisk.get(key);
+    if (!existing || delayHours > existing.delayHours) {
+      shipmentsByRisk.set(key, { ship, delayHours });
+    }
+  }
+
+  let demandSurgePct = 0;
+  if (disruption.type === 'DEMAND_SURGE') {
+    const timeline = await db.all(
+      'SELECT text FROM disruption_timeline WHERE disruption_id = ? ORDER BY ts',
+      [disruption.id],
+    );
+    for (const item of timeline) {
+      const match = /(\d+(?:\.\d+)?)%\s+above\b/i.exec(item.text || '');
+      if (match) {
+        demandSurgePct = Number(match[1]);
+        break;
+      }
+    }
+  }
+
+  // Assess one inventory position for each facility and product.
+  const risks = [];
+  for (const { ship, delayHours } of shipmentsByRisk.values()) {
     const inv = await db.get(
       'SELECT * FROM inventory WHERE facility_code = ? AND product_sku = ?',
       [ship.destination_code, ship.product_sku],
     );
     const facility = facilitiesByCode[ship.destination_code] || {};
-    const delayHours = ship.delay_hours > 0 ? ship.delay_hours : sensing.delayHours;
     if (!inv) {
       risks.push({
         facility_code: ship.destination_code, facility_name: facility.name,
@@ -50,11 +72,12 @@ async function run(db, disruption, sensing) {
       continue;
     }
     const available = inv.qty_on_hand - inv.reserved_qty;
-    const coverHours = rules.stockCoverHours(available, inv.daily_usage);
-    const shortfall = rules.shortfallUnits(available, inv.daily_usage, delayHours);
+    const dailyUsage = Number(inv.daily_usage) * (1 + demandSurgePct / 100);
+    const coverHours = rules.stockCoverHours(available, dailyUsage);
+    const shortfall = rules.shortfallUnits(available, dailyUsage, delayHours);
     const med = await db.get('SELECT * FROM medicines WHERE sku = ?', [ship.product_sku]);
     const transferQty = shortfall > 0
-      ? rules.transferQuantity(available, inv.daily_usage, delayHours, med.case_size, policy.SAFETY_BUFFER_DAYS)
+      ? rules.transferQuantity(available, dailyUsage, delayHours, med.case_size, policy.SAFETY_BUFFER_DAYS)
       : 0;
     risks.push({
       facility_code: ship.destination_code,
@@ -65,7 +88,8 @@ async function run(db, disruption, sensing) {
       unit: med.unit,
       batch: ship.batch,
       available,
-      daily_usage: inv.daily_usage,
+      daily_usage: dailyUsage,
+      demand_surge_pct: demandSurgePct,
       cover_hours: coverHours,
       cover_days: rules.r1(coverHours / 24),
       delay_hours: delayHours,

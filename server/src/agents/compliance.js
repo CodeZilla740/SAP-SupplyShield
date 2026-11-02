@@ -9,24 +9,59 @@
 // ============================================================================
 const rules = require('../rules/rules');
 
-function buildChecks(option, product, r1c, r2c, r3c, batchCheck) {
+function productTemperatureCheck(product, carrier) {
+  const productMin = rules.num(product && product.min_temp);
+  const productMax = rules.num(product && product.max_temp);
+  const carrierMin = rules.num(carrier && carrier.min_temp);
+  const carrierMax = rules.num(carrier && carrier.max_temp);
+  if ([productMin, productMax].some((value) => value === null)) {
+    return { pass: false, note: 'Product temperature range is unavailable' };
+  }
+  if ([carrierMin, carrierMax].some((value) => value === null)) {
+    return { pass: false, note: `Carrier temperature range is unavailable; product requires ${productMin}-${productMax} C` };
+  }
+  if (carrierMin < productMin || carrierMax > productMax) {
+    return {
+      pass: false,
+      note: `Carrier range ${carrierMin}-${carrierMax} C is outside product range ${productMin}-${productMax} C`,
+    };
+  }
+  return {
+    pass: true,
+    note: `Carrier range ${carrierMin}-${carrierMax} C is within product range ${productMin}-${productMax} C`,
+  };
+}
+
+function buildChecks(option, product, r2c, r3c, batchCheck) {
   if (option.code === 'WAIT') {
     return [{
       label: 'Stock-cover deadline', pass: r3c.pass, note: r3c.note,
     }];
   }
-  if (option.carrier && option.carrier.mode === 'AIR') {
-    return [
-      { label: 'Product temperature range', pass: product && rules.num(product.min_temp) !== null, note: `Required band +${product.min_temp}°C to +${product.max_temp}°C` },
-      { label: 'Carrier certification', pass: Boolean(option.carrier.cold_chain_certified), note: r1c.note },
-      { label: 'Live telemetry capability', pass: Boolean(option.carrier.telemetry_capable), note: option.carrier.telemetry_capable ? 'Live reefer telemetry available' : 'Carrier offers no live temperature telemetry' },
-      { label: 'Batch validity', pass: batchCheck.pass, note: batchCheck.note },
-    ];
-  }
+  const temperatureCheck = productTemperatureCheck(product, option.carrier);
+  const warehouseCheck = option.source_qualification_failure
+    ? { pass: false, note: option.source_qualification_failure }
+    : r2c;
+  const vehicleAvailable = Boolean(
+    option.carrier
+      && option.carrier.mode === 'ROAD'
+      && option.carrier.cold_chain_certified
+      && option.carrier.telemetry_capable
+      && option.carrier.vehicle,
+  );
+  const vehicleNote = !option.carrier
+    ? 'No carrier is assigned to this option'
+    : !option.carrier.cold_chain_certified
+      ? 'Carrier lacks active cold-chain certification'
+      : !option.carrier.telemetry_capable
+        ? 'Carrier lacks live temperature telemetry'
+        : !option.carrier.vehicle
+          ? 'No qualified reefer vehicle is assigned'
+          : `Qualified reefer ${option.vehicle || option.carrier.vehicle} assigned`;
   return [
-    { label: 'Product temperature range', pass: r1c.pass, note: r1c.note },
-    { label: 'Warehouse qualification', pass: r2c.pass, note: r2c.note },
-    { label: 'Reefer vehicle available', pass: Boolean(option.carrier && option.carrier.cold_chain_certified && option.carrier.telemetry_capable && option.carrier.vehicle), note: option.vehicle ? `Reefer ${option.vehicle} assigned` : 'No qualified reefer vehicle' },
+    { label: 'Product temperature range', ...temperatureCheck },
+    { label: 'Warehouse qualification', pass: warehouseCheck.pass, note: warehouseCheck.note },
+    { label: 'Reefer vehicle available', pass: vehicleAvailable, note: vehicleNote },
     { label: 'Batch validity', pass: batchCheck.pass, note: batchCheck.note },
   ];
 }
@@ -41,21 +76,24 @@ async function run(db, options, impact) {
     const r1c = o.code === 'WAIT'
       ? { pass: true, note: 'R1 N/A: no transport action' }
       : rules.ruleColdChain(product, o.carrier);
-    const r2c = (o.code === 'WAIT' || o.source_type === 'SUPPLIER')
-      ? { pass: true, note: o.code === 'WAIT' ? 'R2 N/A: no transfer' : 'R2 N/A: supplier hub (capacity confirmed on the SAP PO)' }
+    const r2c = o.code === 'WAIT'
+      ? { pass: true, note: 'R2 N/A: no transfer' }
       : rules.ruleSafetyStock(
         await db.get('SELECT * FROM inventory WHERE facility_code = ? AND product_sku = ?', [o.source_code, primary.product_sku]),
         o.qty, o.source_code,
       );
     const r3c = rules.ruleDeadline(o.eta_hours, primary.cover_hours);
 
-    o.checks = buildChecks(o, product, r1c, r2c, r3c, batchCheck);
-    o.compliant = r1c.pass && r2c.pass;
+    o.checks = buildChecks(o, product, r2c, r3c, batchCheck);
+    o.compliant = o.code === 'WAIT' || o.checks.every((check) => check.pass);
     o.meets_deadline = r3c.pass;
     o.eligible = Boolean(o.feasible && o.compliant && o.meets_deadline);
 
     const notes = [];
-    if (o.code !== 'WAIT') { notes.push(r1c.note); notes.push(r2c.note); }
+    if (o.code !== 'WAIT') {
+      notes.push(r1c.note);
+      notes.push(o.source_qualification_failure || r2c.note);
+    }
     notes.push(r3c.note);
     o.rule_notes = notes.join(' | ');
 
@@ -65,7 +103,7 @@ async function run(db, options, impact) {
     } else if (o.code === 'WAIT') {
       o.reason = `Hospital stock will be exhausted approximately ${Math.round(primary.stockout_gap_hours)} hours before replenishment arrives.`;
     } else if (!o.feasible) {
-      o.reason = o.logistics_note || 'Option is not logistically feasible.';
+      o.reason = o.feasibility_note || o.logistics_note || 'Option is not logistically feasible.';
     } else if (!o.compliant) {
       o.reason = o.checks.filter((c) => !c.pass).map((c) => c.note).join('; ') || o.rule_notes;
     } else {
