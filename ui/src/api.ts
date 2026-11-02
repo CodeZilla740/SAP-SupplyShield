@@ -3,9 +3,11 @@
 // backend, which persists state in SAP HANA Cloud (or the local fallback).
 // Responses carry `demo: true` because the seeded records are simulated.
 
+const CAP_BASE = (import.meta.env.VITE_CAP_SERVICE_URL || "/odata/v4/supply-shield").replace(/\/$/, "")
 const EXPRESS_BASE = (import.meta.env.VITE_EXPRESS_API_BASE_URL || "/api").replace(/\/$/, "")
+const EXPRESS_FALLBACK_ENABLED = import.meta.env.VITE_EXPRESS_FALLBACK !== "false"
 
-type ApiError = Error & { status?: number }
+type ApiError = Error & { status?: number; fallbackable?: boolean }
 
 function errorMessage(body: unknown, fallback: string): string {
   if (!body || typeof body !== "object") {
@@ -42,6 +44,15 @@ async function responseBody(response: Response): Promise<{ body: unknown; text: 
   }
 }
 
+function canUseExpressFallback(status: number, body: unknown, text: string): boolean {
+  if (status === 502 || status === 503 || status === 504) return true
+  if (status === 500) return /proxy error|ECONNREFUSED|ECONNRESET|socket hang up/i.test(text)
+  if (status === 404) {
+    return typeof body === "string" || !body || typeof body !== "object" || !("error" in body)
+  }
+  return false
+}
+
 function withoutODataContext<T>(body: unknown): T {
   if (body && typeof body === "object" && !Array.isArray(body)) {
     const { "@odata.context": _context, ...data } = body as Record<string, unknown>
@@ -64,18 +75,28 @@ async function send<T>(base: string, path: string, init?: RequestInit): Promise<
     throw apiError(
       errorMessage(body, `Request failed: HTTP ${response.status}`),
       response.status,
+      canUseExpressFallback(response.status, body, text),
     )
   }
   return withoutODataContext<T>(body)
 }
 
 async function req<T>(
-  _capPath: string,
+  capPath: string,
   expressPath: string,
-  _capInit?: RequestInit,
-  expressInit: RequestInit = _capInit || {},
+  capInit?: RequestInit,
+  expressInit: RequestInit = capInit || {},
 ): Promise<T> {
-  return send<T>(EXPRESS_BASE, expressPath, expressInit)
+  try {
+    return await send<T>(CAP_BASE, capPath, capInit)
+  } catch (error) {
+    const method = (capInit?.method || "GET").toUpperCase()
+    const transportFailure = error instanceof TypeError && (method === "GET" || method === "HEAD")
+    const proxyFailure = transportFailure || (error as ApiError).fallbackable === true
+    if (!EXPRESS_FALLBACK_ENABLED || !proxyFailure) throw error
+    // An ambiguous network failure must not replay a write against Express.
+    return send<T>(EXPRESS_BASE, expressPath, expressInit)
+  }
 }
 
 function odataString(value: string): string {
