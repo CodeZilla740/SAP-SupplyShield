@@ -1,0 +1,14 @@
+id,po_ebeln,product_sku,batch,origin_code,origin_label,destination_code,destination_label,route,status,risk,delay_hours,eta_text,current_temp,is_synthetic
+SS-2048,PO-88314,MED-INSULIN,IN-84A29,PORT-MAA,Chennai Port,HOS-STM,St. Martha Hospital,NH48 / Bengaluru,Disrupted,Critical,48,48h delayed,4.2,True
+SS-2051,PO-88321,MED-MRNA,VX-112C,PORT-MAA,Chennai Port,HOS-APO,Apollo Central,NH48 / Bengaluru,Monitoring,Medium,0,12h 10m,3.8,True
+SS-2056,PO-88298,MED-PLASMA,PL-49F7,WH-HYD,Hyderabad DC,HOS-CITY,City Care Network,NH44 South,Monitoring,Medium,0,6h 20m,5.1,True
+SS-2060,PO-88342,MED-ONCO,ON-225D,WH-MUM,Mumbai Hub,WH-BLR,Bengaluru MedHub,NH48 South,On track,Low,0,11h 45m,4.7,True
+SS-2063,PO-88350,MED-RABIES,RV-71B3,WH-MUM,Mumbai Hub,HOS-MAN,Manipal Hospital,Air / BLR,On track,Low,0,4h 15m,3.9,True
+SS-2070,PO-88401,MED-INSULIN,IN-84A29,WH-DEL,Delhi NCR Distribution Centre,HOS-DEL,Delhi NCR Hospital,Delhi NCR cold-chain lane,Monitoring,Medium,0,2026-11-06,4.4,True
+SS-2071,PO-88402,MED-MRNA,VX-112C,PORT-KOL,Kolkata Port,HOS-KOL,Kolkata Medical Centre,NH12 / Kolkata,Disrupted,Critical,24,24h delayed,4.1,True
+SS-2072,PO-88403,MED-PLASMA,PL-49F7,WH-PUN,Pune Distribution Centre,HOS-PUN,Pune Hospital,Pune cold-chain lane,Monitoring,Medium,0,2026-11-06,4.8,True
+SS-2080,PO-88410,MED-PLASMA,PL-49F7,PORT-BOM,Mumbai Port,HOS-PUN,Pune Hospital,Mumbai-Pune Expressway,Disrupted,Critical,36,36h delayed,4.0,True
+SS-2082,PO-88412,MED-ONCO,ON-225D,PORT-VIZ,Visakhapatnam Port,HOS-MAN,Manipal Hospital,NH16 / Bengaluru,Disrupted,Critical,48,48h delayed,4.6,True
+SYN8001,SYNPO0006,MED-INSULIN,IN-84A29,PORT-MAA,Chennai Port,HOS-STM,St. Martha Hospital,NH48 / Bengaluru,On track,Low,0,2026-11-06,4.2,True
+SYN8002,SYNPO0007,MED-RABIES,RV-71B3,WH-MUM,Mumbai Hub,HOS-MAN,Manipal Hospital,Air / Bengaluru,On track,Low,0,2026-11-06,3.9,True
+SYN8003,SYNPO0008,MED-PLASMA,PL-49F7,WH-HYD,Hyderabad DC,HOS-CITY,City Care Network,NH44 South,On track,Low,0,2026-11-05,5.1,True

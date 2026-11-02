@@ -55,13 +55,20 @@ async function freshServer({ withPlan = true } = {}) {
   const server = await new Promise((resolve) => {
     const s = app.listen(0, () => resolve(s));
   });
+  const originalClose = server.close.bind(server);
+  server.close = function (cb) {
+    if (typeof server.closeAllConnections === 'function') {
+      server.closeAllConnections();
+    }
+    return originalClose(cb);
+  };
   const base = `http://127.0.0.1:${server.address().port}`;
   sessionCookies.set(base, sessionCookie(session.token, session.maxAge).split(';')[0]);
   return { db, pipeline, server, base };
 }
 
 async function postRequest(base, path, body, cookie) {
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', Connection: 'close' };
   if (cookie) headers.Cookie = cookie;
   const res = await fetch(base + path, {
     method: 'POST',
@@ -72,7 +79,8 @@ async function postRequest(base, path, body, cookie) {
 }
 
 async function getRequest(base, path, cookie) {
-  const headers = cookie ? { Cookie: cookie } : undefined;
+  const headers = { Connection: 'close' };
+  if (cookie) headers.Cookie = cookie;
   const res = await fetch(base + path, { headers });
   return { status: res.status, body: await res.json(), headers: res.headers };
 }

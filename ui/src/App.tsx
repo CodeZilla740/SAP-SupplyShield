@@ -8,21 +8,28 @@ import {
   getCompliance,
   getCurrentPlan,
   getDisruption,
+  getDisruptionLocations,
   getHealth,
   getInventory,
+  getNetwork,
   getOverview,
+  getPorts,
   getShipment,
   getShipments,
+  listDisruptions,
   rejectPlan,
   runAnalysis,
   type AgentStatus,
   type AuditData,
   type ComplianceData,
   type DisruptionDetail,
+  type DisruptionLocation,
   type HealthInfo,
   type InventoryData,
+  type NetworkData,
   type OverviewData,
   type PlanData,
+  type PortItem,
   type ShipmentRow,
   type ShipmentsData,
 } from "./api"
@@ -292,6 +299,24 @@ function useClock() {
   return now
 }
 
+interface DisruptionLocationItem {
+  code: string
+  name: string
+  city: string
+  defaultDisruptionType: string
+}
+
+const ALL_DISRUPTION_LOCATIONS: DisruptionLocationItem[] = [
+  { code: "INMAA", name: "Chennai Port", city: "Chennai", defaultDisruptionType: "CYCLONE" },
+  { code: "INBOM", name: "Mumbai Port", city: "Mumbai", defaultDisruptionType: "FLOOD" },
+  { code: "INKOL", name: "Kolkata Port", city: "Kolkata", defaultDisruptionType: "PORT_CONGESTION" },
+  { code: "INVIZ", name: "Visakhapatnam Port", city: "Visakhapatnam", defaultDisruptionType: "CYCLONE" },
+  { code: "INHYD", name: "Hyderabad Hub", city: "Hyderabad", defaultDisruptionType: "DENSE_FOG" },
+  { code: "INDEL", name: "Delhi NCR Facility", city: "Delhi NCR", defaultDisruptionType: "DEMAND_SURGE" },
+  { code: "INPUN", name: "Pune DC", city: "Pune", defaultDisruptionType: "POWER_OUTAGE" },
+  { code: "INBLR", name: "Bengaluru Logistics Hub", city: "Bengaluru", defaultDisruptionType: "TRANSIT_DELAY" },
+]
+
 function App() {
   const [screen, setScreen] = useState<Screen>("Overview")
   const [menuOpen, setMenuOpen] = useState(false)
@@ -310,6 +335,9 @@ function App() {
   const [assessmentRunning, setAssessmentRunning] = useState(false)
   const [planStatus, setPlanStatus] = useState<"PENDING_APPROVAL" | "APPROVED" | "REJECTED" | null>(null)
   const [health, setHealth] = useState<HealthInfo | null>(null)
+  const [selectedPort, setSelectedPort] = useState<string>("INMAA")
+  const [ports, setPorts] = useState<PortItem[]>([])
+  const [disruptionLocations, setDisruptionLocations] = useState<DisruptionLocation[]>([])
   const [toast, setToast] = useState("")
   const [dataVersion, setDataVersion] = useState(0)
   const now = useClock()
@@ -446,15 +474,51 @@ function App() {
   }, [dataVersion])
 
   useEffect(() => {
-    getCurrentPlan()
-      .then((p) => setPlanStatus(p.plan.status))
-      .catch(() => setPlanStatus(null))
+    getPorts().then((res) => {
+      const codes = new Set(res.ports.map((p) => p.code))
+      const extra: PortItem[] = ALL_DISRUPTION_LOCATIONS.filter((l: DisruptionLocationItem) => !codes.has(l.code)).map((l: DisruptionLocationItem) => ({
+        code: l.code,
+        name: l.name,
+        city: l.city,
+        lat: 0,
+        lng: 0,
+        facilityCode: "",
+        primaryDisruptionId: "",
+        defaultDisruptionType: l.defaultDisruptionType,
+        description: "",
+        activeDisruption: null,
+        disruptedShipments: 0,
+        linkedPOs: 0,
+        plan: null,
+      }))
+      setPorts([...res.ports, ...extra])
+    }).catch(() => setPorts(ALL_DISRUPTION_LOCATIONS.map((l: DisruptionLocationItem) => ({
+      code: l.code,
+      name: l.name,
+      city: l.city,
+      lat: 0,
+      lng: 0,
+      facilityCode: "",
+      primaryDisruptionId: "",
+      defaultDisruptionType: l.defaultDisruptionType,
+      description: "",
+      activeDisruption: null,
+      disruptedShipments: 0,
+      linkedPOs: 0,
+      plan: null,
+    }))))
   }, [dataVersion])
 
-  const runAssessment = async () => {
+  useEffect(() => {
+    getCurrentPlan(selectedPort)
+      .then((p) => setPlanStatus(p.plan.status))
+      .catch(() => setPlanStatus(null))
+  }, [dataVersion, selectedPort])
+
+  const runAssessment = async (disruptionId: string) => {
     setAssessmentRunning(true)
     try {
-      const result = await runAnalysis("INC-2026-1104-03")
+      const result = await runAnalysis(disruptionId)
       refresh()
       notify(result.message || "Impact assessment complete — recovery scenarios generated.")
       navigate("AI Recovery Planning")
@@ -623,6 +687,51 @@ function App() {
             )}
           </div>
           <div className="topbar-right">
+            <div
+              className="port-context-badge"
+              title="Active Port Context for multi-port disruption analysis"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                background: "rgba(15, 23, 42, 0.75)",
+                padding: "4px 10px",
+                borderRadius: 8,
+                border: "1px solid rgba(255, 255, 255, 0.12)",
+              }}
+            >
+              <Icon name="pin" size={14} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted, #94a3b8)", textTransform: "uppercase" }}>
+                Port:
+              </span>
+              <select
+                aria-label="Active port context"
+                value={selectedPort}
+                onChange={(e) => {
+                  const newPort = e.target.value
+                  setSelectedPort(newPort)
+                  notify(`Active context: ${ports.find((p) => p.code === newPort)?.name || newPort}`)
+                }}
+                style={{
+                  background: "transparent",
+                  color: "#f8fafc",
+                  border: "none",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                {(ports.length > 0
+                  ? ports
+                  : ALL_DISRUPTION_LOCATIONS
+                ).map((p) => (
+                  <option key={p.code} value={p.code} style={{ background: "#0f172a", color: "#f8fafc" }}>
+                    {p.name} ({p.code})
+                  </option>
+                ))}
+              </select>
+            </div>
             <div className="sync-label">
               <Icon name="sync" size={14} />
               <span>
@@ -642,24 +751,47 @@ function App() {
         </header>
 
         <div className="page-content">
-          {screen === "Overview" && <Overview navigate={navigate} version={dataVersion} />}
+          {screen === "Overview" && (
+            <Overview
+              navigate={navigate}
+              version={dataVersion}
+              selectedPort={selectedPort}
+              onSelectPort={setSelectedPort}
+              ports={ports}
+            />
+          )}
           {screen === "Disruption Monitor" && (
             <DisruptionMonitor
               running={assessmentRunning}
               runAssessment={runAssessment}
               version={dataVersion}
+              selectedPort={selectedPort}
             />
           )}
           {screen === "Shipment Intelligence" && (
-            <ShipmentIntelligence selectShipment={setSelectedShipment} version={dataVersion} />
+            <ShipmentIntelligence
+              selectShipment={setSelectedShipment}
+              version={dataVersion}
+              selectedPort={selectedPort}
+            />
           )}
           {screen === "Inventory & Stock Risk" && (
-            <InventoryRisk navigate={navigate} version={dataVersion} />
+            <InventoryRisk
+              navigate={navigate}
+              version={dataVersion}
+              selectedPort={selectedPort}
+            />
           )}
           {screen === "AI Recovery Planning" && (
-            <RecoveryPlanning navigate={navigate} version={dataVersion} />
+            <RecoveryPlanning
+              navigate={navigate}
+              version={dataVersion}
+              selectedPort={selectedPort}
+            />
           )}
-          {screen === "Cold-Chain Compliance" && <Compliance version={dataVersion} />}
+          {screen === "Cold-Chain Compliance" && (
+            <Compliance version={dataVersion} selectedPort={selectedPort} />
+          )}
           {screen === "Approval Centre" && (
             <ApprovalCentre
               approval={approval}
@@ -675,10 +807,16 @@ function App() {
               onBlocked={(message) => notify(message)}
               navigate={navigate}
               version={dataVersion}
+              selectedPort={selectedPort}
             />
           )}
           {screen === "Execution & Audit Trail" && (
-            <AuditTrail approval={approval} version={dataVersion} notify={notify} />
+            <AuditTrail
+              approval={approval}
+              version={dataVersion}
+              notify={notify}
+              selectedPort={selectedPort}
+            />
           )}
           <footer>
             <span>SUPPLYSHIELD / SAP HACKFEST BENGALURU 2026</span>
@@ -714,12 +852,24 @@ function App() {
   )
 }
 
-function Overview({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+function Overview({
+  navigate,
+  version,
+  selectedPort,
+  onSelectPort,
+  ports,
+}: {
+  navigate: (screen: Screen) => void
+  version: number
+  selectedPort: string
+  onSelectPort: (port: string) => void
+  ports: PortItem[]
+}) {
   const [data, setData] = useState<OverviewData | null>(null)
   const [mapView, setMapView] = useState<"street" | "satellite">("street")
   useEffect(() => {
-    getOverview().then(setData).catch(() => setData(null))
-  }, [version])
+    getOverview(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, selectedPort])
   if (!data) return <Loading label="EXECUTIVE CONTROL TOWER" />
   return (
     <>
@@ -743,7 +893,15 @@ function Overview({ navigate, version }: { navigate: (screen: Screen) => void; v
           <div className="score-ring">
             <svg viewBox="0 0 64 64">
               <circle cx="32" cy="32" r="26" />
-              <circle className="score-progress" cx="32" cy="32" r="26" />
+              <circle
+                className="score-progress"
+                cx="32"
+                cy="32"
+                r="26"
+                style={{
+                  strokeDasharray: `${(163.36 * Math.min(100, Math.max(0, data.health.score))) / 100} 163.36`,
+                }}
+              />
             </svg>
             <span>
               <b>{data.health.score}</b>
@@ -751,7 +909,7 @@ function Overview({ navigate, version }: { navigate: (screen: Screen) => void; v
             </span>
           </div>
           <div>
-            <span>NETWORK RESILIENCE</span>
+            <span>TELEMETRY IN-RANGE</span>
             <strong>{data.health.status}</strong>
             <small>{data.health.delta}</small>
           </div>
@@ -787,27 +945,55 @@ function Overview({ navigate, version }: { navigate: (screen: Screen) => void; v
               <b>{trend}</b>
               <span>{detail}</span>
             </div>
-            <div className="mini-bars">
-              {[30, 45, 38, 66, 52, 82, 70, 91].map((height, i) => (
-                <i key={i} style={{ height: `${height}%` }} />
-              ))}
-            </div>
           </article>
         ))}
       </section>
 
       <section className="command-grid">
         <article className="panel map-panel">
-          <div className="panel-heading">
+          <div className="panel-heading" style={{ flexWrap: "wrap", gap: 12 }}>
             <div>
               <span className="panel-kicker">LIVE NETWORK TOPOLOGY</span>
               <h2>India medical supply network</h2>
             </div>
-            <div className="map-heading-actions">
+            <div className="map-heading-actions" style={{ flexWrap: "wrap", gap: 10 }}>
+              <div className="port-selection-box" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--text-muted, #94a3b8)", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Disruption Focus:
+                </span>
+                <select
+                  aria-label="Select active port for disruption analysis"
+                  value={selectedPort}
+                  onChange={(e) => onSelectPort(e.target.value)}
+                  style={{
+                    background: "rgba(15, 23, 42, 0.9)",
+                    color: "#f8fafc",
+                    border: "1px solid #3b82f6",
+                    borderRadius: 6,
+                    padding: "5px 10px",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {(ports.length > 0
+                    ? ports
+                    : ALL_DISRUPTION_LOCATIONS
+                  ).map((p: PortItem | DisruptionLocationItem) => (
+                    <option key={p.code} value={p.code}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
               <div className="map-legend">
                 <span>
-                  <i className="safe" />
-                  Safe
+                  <i style={{ background: "#10b981", width: 12, height: 3, borderRadius: 2, display: "inline-block" }} />
+                  Road
+                </span>
+                <span>
+                  <i style={{ background: "#8b5cf6", width: 12, height: 3, borderRadius: 2, display: "inline-block" }} />
+                  Air
                 </span>
                 <span>
                   <i className="alternate" />
@@ -836,13 +1022,96 @@ function Overview({ navigate, version }: { navigate: (screen: Screen) => void; v
               </div>
             </div>
           </div>
+          <div className="port-pill-bar" style={{ display: "flex", gap: 8, padding: "8px 16px", borderBottom: "1px solid rgba(255,255,255,0.08)", background: "rgba(15, 23, 42, 0.5)", overflowX: "auto" }}>
+            {(ports.length > 0
+              ? ports
+              : ALL_DISRUPTION_LOCATIONS
+            ).map((p: PortItem | DisruptionLocationItem) => {
+              const active = p.code === selectedPort
+              return (
+                <button
+                  key={p.code}
+                  type="button"
+                  onClick={() => onSelectPort(p.code)}
+                  style={{
+                    padding: "5px 12px",
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 500,
+                    background: active ? "#2563eb" : "rgba(30, 41, 59, 0.7)",
+                    color: active ? "#ffffff" : "#94a3b8",
+                    border: active ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.1)",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: active ? "#ffffff" : (p.code === "INMAA" ? "#ef4444" : "#f59e0b") }} />
+                  <b>{p.name}</b>
+                  <small style={{ opacity: 0.8, fontSize: 10 }}>({p.code})</small>
+                </button>
+              )
+            })}
+          </div>
           <NetworkMap
             view={mapView}
             mapEvent={data.mapEvent}
+            network={data.network}
             onOpenDisruption={() => navigate("Disruption Monitor")}
           />
+          {data.network.lanes.some((l) => l.isAlternative) && (
+            <div
+              className="alternative-lanes-summary"
+              style={{
+                margin: "12px 16px 16px",
+                padding: "12px 14px",
+                background: "rgba(245, 158, 11, 0.08)",
+                border: "1px solid rgba(245, 158, 11, 0.3)",
+                borderRadius: 8,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexWrap: "wrap", gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  Active Alternative Logistics Lanes · {selectedPort} Rerouting Analysis
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-muted, #94a3b8)" }}>
+                  Feasible alternative carrier lanes identified
+                </span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+                {data.network.lanes.filter((l) => l.isAlternative).map((lane) => (
+                  <div
+                    key={lane.id}
+                    style={{
+                      background: "rgba(15, 23, 42, 0.7)",
+                      border: "1px solid rgba(255, 255, 255, 0.08)",
+                      borderRadius: 6,
+                      padding: "8px 12px",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 4,
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong style={{ fontSize: 12, color: "#f8fafc" }}>
+                        {lane.origin_city} → {lane.destination_city}
+                      </strong>
+                      <span className="status-pill alternate" style={{ fontSize: 10, padding: "2px 6px" }}>
+                        {lane.mode}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted, #94a3b8)", display: "flex", justifyContent: "space-between" }}>
+                      <span>Carrier: {lane.carrier || "Dedicated Carrier"}</span>
+                      <span>{lane.distance_km} km</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </article>
-
       </section>
 
       <section className="panel alerts-panel">
@@ -894,13 +1163,25 @@ const mapTiles = {
   },
 } as const
 
+function escapeMapHtml(value: string) {
+  return value.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character] || character)
+}
+
 function NetworkMap({
   view,
   mapEvent,
+  network,
   onOpenDisruption,
 }: {
   view: "street" | "satellite"
   mapEvent: OverviewData["mapEvent"]
+  network: OverviewData["network"]
   onOpenDisruption: () => void
 }) {
   const mapElement = useRef<HTMLDivElement>(null)
@@ -944,6 +1225,16 @@ function NetworkMap({
     layers.satellite.on("tileerror", handleTileError)
     map.on("zoomend", () => setZoom(map.getZoom()))
 
+    const cityCoordinates: Record<string, L.LatLngTuple> = {
+      Mumbai: [19.076, 72.8777],
+      Chennai: [13.0827, 80.2707],
+      Hyderabad: [17.385, 78.4867],
+      Bengaluru: [12.9716, 77.5946],
+      "Delhi NCR": [28.6139, 77.209],
+      Kolkata: [22.5726, 88.3639],
+      Pune: [18.5204, 73.8567],
+      Visakhapatnam: [17.6868, 83.2185],
+    }
     const routeStyle = {
       weight: 4,
       opacity: 0.88,
@@ -951,143 +1242,104 @@ function NetworkMap({
       lineCap: "round" as const,
       interactive: true,
     }
-    L.polyline(
-      [
-        [19.076, 72.8777],
-        [18.5, 75.5],
-        [17.385, 78.4867],
-      ],
-      { ...routeStyle, color: "#21a179" },
-    )
-      .bindPopup("Safe route · Mumbai to Hyderabad")
-      .addTo(map)
-    L.polyline(
-      [
-        [19.076, 72.8777],
-        [16.7, 74.4],
-        [12.9716, 77.5946],
-      ],
-      { ...routeStyle, color: "#21a179" },
-    )
-      .bindPopup("Safe route · Mumbai to Bengaluru")
-      .addTo(map)
-    L.polyline(
-      [
-        [13.0827, 80.2707],
-        [12.8, 79.6],
-        [12.9716, 77.5946],
-      ],
-      { ...routeStyle, color: "#ef5350", weight: 5 }
-    )
-      .bindPopup("Disrupted route · Chennai to Bengaluru")
-      .addTo(map)
-    L.polyline(
-      [
-        [13.0827, 80.2707],
-        [15.1, 79.4],
-        [17.385, 78.4867],
-      ],
-      { ...routeStyle, color: "#20aabd" },
-    )
-      .bindPopup("Alternative route · Chennai to Hyderabad")
-      .addTo(map)
-    L.polyline(
-      [
-        [17.385, 78.4867],
-        [15.2, 78.0],
-        [12.9716, 77.5946],
-      ],
-      { ...routeStyle, color: "#20aabd" },
-    )
-      .bindPopup("Alternative route · Hyderabad to Bengaluru")
-      .addTo(map)
+    const facilityCoordinates: Record<string, L.LatLngTuple> = {
+      "PORT-MAA": [13.085, 80.298],
+      "HOS-APO": [13.060, 80.252],
+      "PORT-BOM": [18.950, 72.860],
+      "WH-MUM": [19.220, 72.980],
+      "PORT-KOL": [22.540, 88.310],
+      "WH-KOL": [22.600, 88.300],
+      "HOS-KOL": [22.570, 88.410],
+      "PORT-VIZ": [17.695, 83.295],
+      "WH-BLR": [13.040, 77.490],
+      "HOS-STM": [12.965, 77.595],
+      "HOS-MAN": [12.960, 77.650],
+      "WH-HYD": [17.240, 78.430],
+      "HOS-CITY": [17.420, 78.450],
+      "WH-DEL": [28.680, 77.100],
+      "HOS-DEL": [28.580, 77.260],
+      "WH-PUN": [18.650, 73.800],
+      "HOS-PUN": [18.520, 73.860],
+    }
 
-    const locations = [
-      {
-        position: [19.076, 72.8777] as L.LatLngTuple,
-        title: "Mumbai Distribution Hub",
-        meta: "97% capacity · Normal",
-        tone: "safe",
-        labelSide: "right",
-      },
-      {
-        position: [17.385, 78.4867] as L.LatLngTuple,
-        title: "Hyderabad Distribution Centre",
-        meta: "84% capacity · Monitoring",
-        tone: "safe",
-        labelSide: "right",
-      },
-      {
-        position: [12.9716, 77.5946] as L.LatLngTuple,
-        title: "Bengaluru Warehouse",
-        meta: "Transfer ready · 340 units",
-        tone: "alternate",
-        labelSide: "right",
-      },
-      {
-        position: [13.0827, 80.2707] as L.LatLngTuple,
-        title: "Chennai Port",
-        meta: "CLOSED · Cyclone Varun",
-        tone: "critical",
-        labelSide: "above",
-      },
-    ]
-    for (const location of locations) {
-      L.marker(location.position, {
+    for (const lane of network.lanes) {
+      let origin = facilityCoordinates[lane.origin_code] || cityCoordinates[lane.origin_city]
+      let destination = facilityCoordinates[lane.destination_code] || cityCoordinates[lane.destination_city]
+      if (!origin || !destination) continue
+      if (origin[0] === destination[0] && origin[1] === destination[1]) {
+        destination = [destination[0] - 0.08, destination[1] + 0.08]
+      }
+      const isAlt = Boolean((lane as any).isAlternative)
+      const isDisrupted = Boolean((lane as any).isDisrupted)
+      // High contrast colors: vivid purple for AIR, emerald green for ROAD
+      const color = isDisrupted ? "#ef4444" : isAlt ? "#f59e0b" : lane.mode === "AIR" ? "#8b5cf6" : "#10b981"
+      L.polyline([origin, destination], {
+        ...routeStyle,
+        color,
+        weight: isAlt || isDisrupted ? 5 : 4,
+        dashArray: isAlt ? "10 5" : isDisrupted ? "4 4" : "7 8",
+      })
+        .bindPopup(
+          `${escapeMapHtml(lane.origin_city)} → ${escapeMapHtml(lane.destination_city)} · ${escapeMapHtml(lane.mode)} · ${lane.distance_km} km · ${escapeMapHtml(lane.carrier || "carrier unavailable")}${isAlt ? "<br><strong style=\"color:#f59e0b\">[Alternative Feasible Route]</strong>" : ""}${isDisrupted ? "<br><strong style=\"color:#ef4444\">[Disrupted Lane]</strong>" : ""}`
+        )
+        .addTo(map)
+    }
+
+    const cities = new Map<string, typeof network.facilities>()
+    for (const facility of network.facilities) {
+      if (!facility.city || !cityCoordinates[facility.city]) continue
+      cities.set(facility.city, [...(cities.get(facility.city) || []), facility])
+    }
+    for (const [city, facilities] of cities) {
+      const position = cityCoordinates[city]
+      const names = facilities.map((facility) => facility.name).join(", ")
+      const affected = mapEvent.city === city
+      const tone = affected ? "critical" : facilities.some((facility) => facility.type === "WAREHOUSE") ? "alternate" : "safe"
+      L.marker(position, {
         icon: L.divIcon({
           className: "network-map-marker-icon",
           iconSize: [1, 1],
           iconAnchor: [8, 12],
-          html: `<span class="network-map-pin ${location.tone} label-${location.labelSide}"><i></i><span><b>${location.title}</b><small>${location.meta}</small></span></span>`,
+          html: `<span class="network-map-pin ${tone} label-right"><i></i><span><b>${city}</b><small>${facilities.length} facilities</small></span></span>`,
         }),
-        title: location.title,
+        title: city,
         keyboard: true,
       })
-        .bindPopup(`<strong>${location.title}</strong><br>${location.meta}`)
+        .bindPopup(`<strong>${escapeMapHtml(city)}</strong><br>${escapeMapHtml(names)}`)
         .addTo(map)
     }
 
-    const hospitals = [
-      { position: [12.96, 77.6] as L.LatLngTuple, name: "St. Martha", labelSide: "left" },
-      { position: [17.41, 78.45] as L.LatLngTuple, name: "Apollo Central", labelSide: "left" },
-    ]
-    for (const hospital of hospitals) {
-      L.marker(hospital.position, {
+    for (const facility of network.facilities.filter((f) => f.type === "HOSPITAL")) {
+      const pos = facilityCoordinates[facility.code]
+      if (!pos) continue
+      L.marker(pos, {
         icon: L.divIcon({
-          className: "network-map-marker-icon",
+          className: "hospital-pin",
           iconSize: [1, 1],
-          iconAnchor: [8, 12],
-          html: `<span class="network-map-hospital label-${hospital.labelSide}"><i>+</i><b>${hospital.name}</b></span>`,
+          iconAnchor: [6, 6],
+          html: `<span style="display:inline-flex;align-items:center;gap:3px;background:rgba(15,23,42,0.92);color:#38bdf8;border:1px solid #0284c7;border-radius:12px;padding:2px 7px;font-size:10px;font-weight:700;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.5)">🏥 ${facility.name}</span>`,
         }),
-        title: hospital.name,
-        keyboard: true,
+        title: facility.name,
       })
-        .bindPopup(`<strong>${hospital.name}</strong>`)
+        .bindPopup(`<strong>🏥 ${escapeMapHtml(facility.name)}</strong><br>City: ${escapeMapHtml(facility.city)}<br>Priority: ${facility.priority}<br>Ward: ${escapeMapHtml((facility as any).ward || "General")}`)
         .addTo(map)
     }
-
-    L.circle([13.25, 80.55], {
-      radius: 180000,
-      color: "#ef5350",
-      weight: 2,
-      dashArray: "5 7",
-      fillColor: "#ef5350",
-      fillOpacity: 0.12,
-    })
-      .bindPopup("Cyclone Varun · 180 km disruption radius")
-      .addTo(map)
-    L.marker([13.4, 80.8], {
-      icon: L.divIcon({
-        className: "network-map-marker-icon",
-        iconSize: [1, 1],
-        iconAnchor: [8, 12],
-        html: '<span class="network-map-cyclone"><i></i><b>CYCLONE VARUN</b></span>',
-      }),
-      title: "Cyclone Varun",
-      keyboard: true,
-    })
-      .bindPopup("Cyclone Varun · Chennai Port disruption")
-      .addTo(map)
+    const coveragePoints = [...cities.keys()].map((city) => cityCoordinates[city])
+    if (mapEvent.city && cityCoordinates[mapEvent.city]) {
+      map.setView(cityCoordinates[mapEvent.city], 6, { animate: true })
+    } else if (coveragePoints.length > 1) {
+      map.fitBounds(L.latLngBounds(coveragePoints), { padding: [40, 40], maxZoom: 5 })
+    }
+    if (mapEvent.city && cityCoordinates[mapEvent.city] && mapEvent.radiusKm) {
+      L.circle(cityCoordinates[mapEvent.city], {
+        radius: mapEvent.radiusKm * 1000,
+        color: "#ef5350",
+        weight: 2,
+        dashArray: "5 7",
+        fillColor: "#ef5350",
+        fillOpacity: 0.12,
+      }).bindPopup(escapeMapHtml(mapEvent.title)).addTo(map)
+    }
 
     let compactViewport = initialZoom === 5
     const resizeObserver = new ResizeObserver(() => {
@@ -1110,7 +1362,7 @@ function NetworkMap({
       mapInstance.current = null
       tileLayers.current = null
     }
-  }, [])
+  }, [mapEvent.city, mapEvent.radiusKm, mapEvent.title, network])
 
   useEffect(() => {
     const map = mapInstance.current
@@ -1181,16 +1433,55 @@ function DisruptionMonitor({
   running,
   runAssessment,
   version,
+  selectedPort,
 }: {
   running: boolean
-  runAssessment: () => void
+  runAssessment: (id: string) => void
   version: number
+  selectedPort?: string
 }) {
   const [data, setData] = useState<DisruptionDetail | null>(null)
-  const load = useCallback(() => {
-    getDisruption("INC-2026-1104-03").then(setData).catch(() => setData(null))
-  }, [])
-  useEffect(load, [load, version])
+  const [disruptions, setDisruptions] = useState<DisruptionDetail["disruption"][]>([])
+  const [selectedId, setSelectedId] = useState("INC-2026-1104-03")
+  const [loadError, setLoadError] = useState("")
+
+  const portToIncident: Record<string, string> = {
+    INMAA: "INC-2026-1104-03",
+    INBOM: "INC-2026-1104-08",
+    INKOL: "INC-2026-1104-09",
+    INVIZ: "INC-2026-1104-10",
+    INHYD: "INC-2026-1104-02",
+    INDEL: "INC-2026-1104-05",
+    INPUN: "INC-2026-1104-06",
+    INBLR: "INC-2026-1104-03",
+  }
+
+  useEffect(() => {
+    if (selectedPort && portToIncident[selectedPort]) {
+      setSelectedId(portToIncident[selectedPort])
+    }
+  }, [selectedPort])
+
+  useEffect(() => {
+    listDisruptions()
+      .then((result) => {
+        setDisruptions(result.disruptions)
+        const targetId = (selectedPort && portToIncident[selectedPort]) || selectedId
+        setSelectedId((current) => result.disruptions.some((item) => item.id === targetId)
+          ? targetId : (result.disruptions.some((item) => item.id === current) ? current : (result.disruptions[0]?.id || "")))
+      })
+      .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : "Unable to load disruptions"))
+  }, [version, selectedPort])
+  useEffect(() => {
+    if (!selectedId) return
+    getDisruption(selectedId)
+      .then((result) => {
+        setData(result)
+        setLoadError("")
+      })
+      .catch((cause: unknown) => setLoadError(cause instanceof Error ? cause.message : "Unable to load disruption details"))
+  }, [selectedId, version])
+  if (loadError && !data) return <section className="panel"><p role="alert">Disruptions could not be loaded: {loadError}</p></section>
   if (!data) return <Loading label="DISRUPTION MONITOR" />
   const d = data.disruption
   return (
@@ -1200,6 +1491,17 @@ function DisruptionMonitor({
         title="Disruption Intelligence"
         description="Detect, classify and assess external threats across the medical supply network."
       />
+      {disruptions.length > 0 && (
+        <section className="panel" style={{ marginBottom: 18 }}>
+          <label>
+            Select disruption
+            <select value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+              {disruptions.map((item) => <option key={item.id} value={item.id}>{item.title} · {item.id}</option>)}
+            </select>
+          </label>
+          <span className="panel-kicker" style={{ marginLeft: 12 }}>{d.verified ? "Verified source" : "Simulated / unverified"}</span>
+        </section>
+      )}
       <section className="incident-hero">
         <div className="incident-copy">
           <div className="incident-tags">
@@ -1241,7 +1543,7 @@ function DisruptionMonitor({
           </div>
           <button
             className="button primary large"
-            onClick={runAssessment}
+            onClick={() => runAssessment(d.id)}
             disabled={running}
           >
             <Icon name={running ? "sync" : "spark"} size={18} />
@@ -1260,19 +1562,19 @@ function DisruptionMonitor({
             </span>
           </div>
           <div className="storm-stat top">
-            <small>WIND SPEED</small>
-            <b>{d.wind_kmh} km/h</b>
+            <small>{d.type.replace(/_/g, " ")}</small>
+            <b>{d.wind_kmh == null ? "Not reported" : `${d.wind_kmh} km/h`}</b>
           </div>
           <div className="storm-stat bottom">
-            <small>PORT STATUS</small>
-            <b>CLOSED</b>
+            <small>EVENT STATUS</small>
+            <b>{d.status}</b>
           </div>
           <div className="storm-caption">
             <i />
             <span>
               {d.source}
               <br />
-              <b>{d.verified ? "Verified operational source" : "UNVERIFIED weather alert"}</b>
+              <b>{d.verified ? "Verified operational source" : "Simulated / unverified event"}</b>
             </span>
           </div>
         </div>
@@ -1326,9 +1628,11 @@ function DisruptionMonitor({
 function ShipmentIntelligence({
   selectShipment,
   version,
+  selectedPort,
 }: {
   selectShipment: (shipment: ShipmentRow) => void
   version: number
+  selectedPort?: string
 }) {
   const [data, setData] = useState<ShipmentsData | null>(null)
   const [query, setQuery] = useState("")
@@ -1336,8 +1640,8 @@ function ShipmentIntelligence({
   const [filters, setFilters] = useState<ShipmentFilters>(emptyShipmentFilters)
   const [draftFilters, setDraftFilters] = useState<ShipmentFilters>(emptyShipmentFilters)
   useEffect(() => {
-    getShipments().then(setData).catch(() => setData(null))
-  }, [version])
+    getShipments(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, selectedPort])
   if (!data) return <Loading label="SHIPMENT INTELLIGENCE" />
   const q = query.trim().toLowerCase()
   const activeFilterCount = countShipmentFilters(filters)
@@ -1831,7 +2135,15 @@ function ShipmentDrawer({
   )
 }
 
-function InventoryRisk({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+function InventoryRisk({
+  navigate,
+  version,
+  selectedPort,
+}: {
+  navigate: (screen: Screen) => void
+  version: number
+  selectedPort?: string
+}) {
   const [data, setData] = useState<InventoryData | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [filters, setFilters] = useState<InventoryFilters>(emptyInventoryFilters)
@@ -1840,8 +2152,8 @@ function InventoryRisk({ navigate, version }: { navigate: (screen: Screen) => vo
   const filterPanelRef = useRef<HTMLDivElement>(null)
   const [filterPanelPosition, setFilterPanelPosition] = useState({ top: 12, left: 12 })
   useEffect(() => {
-    getInventory().then(setData).catch(() => setData(null))
-  }, [version])
+    getInventory(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, selectedPort])
   useEffect(() => {
     if (!filtersOpen) return
     const previousOverflow = document.body.style.overflow
@@ -2284,11 +2596,19 @@ function countInventoryFilters(filters: InventoryFilters) {
   ].filter(Boolean).length
 }
 
-function RecoveryPlanning({ navigate, version }: { navigate: (screen: Screen) => void; version: number }) {
+function RecoveryPlanning({
+  navigate,
+  version,
+  selectedPort,
+}: {
+  navigate: (screen: Screen) => void
+  version: number
+  selectedPort?: string
+}) {
   const [data, setData] = useState<PlanData | null>(null)
   useEffect(() => {
-    getCurrentPlan().then(setData).catch(() => setData(null))
-  }, [version])
+    getCurrentPlan(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, selectedPort])
 
   if (!data) return <Loading label="AGENTIC RECOVERY" />
   const recommended = data.recommended
@@ -2342,7 +2662,7 @@ function RecoveryPlanning({ navigate, version }: { navigate: (screen: Screen) =>
           </div>
           <div>
             <span>SUPPLYSHIELD RECOMMENDS</span>
-            <h2>Bengaluru stock transfer</h2>
+            <h2>{recommended.title}</h2>
             <p>{recommended.reason}</p>
           </div>
           <div className="recommendation-score">
@@ -2487,11 +2807,11 @@ function ScenarioCard({
   )
 }
 
-function Compliance({ version }: { version: number }) {
+function Compliance({ version, selectedPort }: { version: number; selectedPort?: string }) {
   const [data, setData] = useState<ComplianceData | null>(null)
   useEffect(() => {
-    getCompliance().then(setData).catch(() => setData(null))
-  }, [version])
+    getCompliance(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, selectedPort])
 
   if (!data) return <Loading label="PHARMACEUTICAL GOVERNANCE" />
   const t = data.telemetry
@@ -2738,12 +3058,14 @@ function ApprovalCentre({
   onBlocked,
   navigate,
   version,
+  selectedPort,
 }: {
   approval: "pending" | "approved" | "rejected"
   onDecision: (status: "APPROVED" | "REJECTED") => void
   onBlocked: (message: string) => void
   navigate: (screen: Screen) => void
   version: number
+  selectedPort?: string
 }) {
   const [data, setData] = useState<PlanData | null>(null)
   const [inventory, setInventory] = useState<InventoryData | null>(null)
@@ -2751,9 +3073,9 @@ function ApprovalCentre({
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    getCurrentPlan().then(setData).catch(() => setData(null))
-    getInventory().then(setInventory).catch(() => setInventory(null))
-  }, [version])
+    getCurrentPlan(selectedPort).then(setData).catch(() => setData(null))
+    getInventory(selectedPort).then(setInventory).catch(() => setInventory(null))
+  }, [version, selectedPort])
 
   if (!data) return <Loading label="HUMAN GOVERNANCE" />
   const rec = data.recommended
@@ -2778,7 +3100,8 @@ function ApprovalCentre({
     }
   }
 
-  const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Bengaluru Warehouse"
+  const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Donor Warehouse"
+  const medicineName = inventory?.critical.medicine || "units"
   const facts: [string, string, IconName][] = [
     ["Disruption", data.disruption.title, "alert"],
     [
@@ -2786,7 +3109,7 @@ function ApprovalCentre({
       inventory ? `Critical · stockout in ${Math.round(inventory.critical.stockoutHours)}h` : "Critical",
       "medicine",
     ],
-    ["Transfer quantity", rec ? `${rec.qty} insulin vials` : "—", "box"],
+    ["Transfer quantity", rec ? `${rec.qty} ${medicineName} units` : "—", "box"],
     ["Donor warehouse", donorFrom, "inventory"],
     ["Estimated delivery", rec ? `${rec.eta_hours} hours` : "—", "clock"],
     ["Estimated cost", rec ? `$${Number(rec.cost_usd).toLocaleString("en-US")}` : "—", "document"],
@@ -2969,15 +3292,17 @@ function AuditTrail({
   approval,
   version,
   notify,
+  selectedPort,
 }: {
   approval: "pending" | "approved" | "rejected"
   version: number
   notify: (message: string) => void
+  selectedPort?: string
 }) {
   const [data, setData] = useState<AuditData | null>(null)
   useEffect(() => {
-    getAudit().then(setData).catch(() => setData(null))
-  }, [version, approval])
+    getAudit(selectedPort).then(setData).catch(() => setData(null))
+  }, [version, approval, selectedPort])
 
   if (!data) return <Loading label="TRACEABILITY" />
   const approved = approval === "approved"
@@ -3006,7 +3331,7 @@ function AuditTrail({
             <h2>{approved ? "Approved · simulated execution ready" : "Awaiting planner authorization"}</h2>
             <p>
               {approved && plan
-                ? `${plan.recommendedTitle ?? "Stock transfer"} · ${plan.qty} insulin vials · ${plan.destination}`
+                ? `${plan.recommendedTitle ?? "Stock transfer"} · ${plan.qty} units · ${plan.destination}`
                 : "No downstream action has been initiated."}
             </p>
           </div>

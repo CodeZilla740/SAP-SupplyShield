@@ -4,3 +4,6 @@ SS-2051,PO-88321,MED-MRNA,VX-112C,PORT-MAA,Chennai Port,HOS-APO,Apollo Central,N
 SS-2056,PO-88298,MED-PLASMA,PL-49F7,WH-HYD,Hyderabad DC,HOS-CITY,City Care Network,NH44 South,Monitoring,Medium,0,6h 20m,5.1
 SS-2060,PO-88342,MED-ONCO,ON-225D,WH-MUM,Mumbai Hub,WH-BLR,Bengaluru MedHub,NH48 South,On track,Low,0,11h 45m,4.7
 SS-2063,PO-88350,MED-RABIES,RV-71B3,WH-MUM,Mumbai Hub,HOS-MAN,Manipal Hospital,Air / BLR,On track,Low,0,4h 15m,3.9
+SS-2070,PO-88401,MED-INSULIN,IN-84A29,WH-DEL,Delhi NCR Distribution Centre,HOS-DEL,Delhi NCR Hospital,Delhi NCR cold-chain lane,Monitoring,Medium,0,2026-11-06,4.4
+SS-2071,PO-88402,MED-MRNA,VX-112C,WH-KOL,Kolkata Distribution Centre,HOS-KOL,Kolkata Medical Centre,Kolkata cold-chain lane,Monitoring,Medium,0,2026-11-06,4.1
+SS-2072,PO-88403,MED-PLASMA,PL-49F7,WH-PUN,Pune Distribution Centre,HOS-PUN,Pune Hospital,Pune cold-chain lane,Monitoring,Medium,0,2026-11-06,4.8

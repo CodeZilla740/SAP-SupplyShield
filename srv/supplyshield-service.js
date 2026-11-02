@@ -104,7 +104,7 @@ function auditText(row) {
   try { payload = JSON.parse(row.payload || '{}'); } catch (error) { /* retain an empty display payload */ }
   switch (row.step) {
     case 'Disruption detected, validated and classified':
-      return `${payload.type} matched to port ${payload.port} geofence. Severity classified ${payload.severity}${payload.verified ? ' (verified operational source)' : ' (UNVERIFIED alert)'}.`;
+      return `${payload.type} matched to network location ${payload.port}. Severity classified ${payload.severity}${payload.verified ? ' (verified operational source)' : ' (simulated / unverified)'}.`;
     case 'Network impact mapped':
       return `${payload.feed_shipments} shipments, ${payload.feed_pos} purchase orders and ${payload.hospitals_assessed} hospital inventory positions assessed.`;
     case 'Recovery scenarios generated': {

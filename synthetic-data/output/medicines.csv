@@ -1,0 +1,7 @@
+sku,name,min_temp,max_temp,unit,case_size,unit_cost,batch,manufactured,expiry,gdp_class,is_synthetic
+MED-INSULIN,Human Insulin,2,8,vials,120,4.5,IN-84A29,2026-09-14,2028-09-13,Temperature sensitive,True
+MED-MRNA,mRNA Vaccine,2,8,doses,100,9.0,VX-112C,2026-08-02,2027-08-01,Temperature sensitive,True
+MED-PLASMA,Plasma Derivatives,2,8,units,48,22.0,PL-49F7,2026-06-20,2027-06-19,Temperature sensitive,True
+MED-ONCO,Oncology Biologic,2,8,units,40,61.0,ON-225D,2026-07-11,2027-07-10,Temperature sensitive,True
+MED-RABIES,Rabies Vaccine,2,8,doses,60,7.25,RV-71B3,2026-05-05,2028-05-04,Temperature sensitive,True
+MED-ANTIBIO,Antibiotic Injection,2,8,vials,50,12.5,AB-33K7,2026-10-01,2028-09-30,Temperature sensitive,True

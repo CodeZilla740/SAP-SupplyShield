@@ -1,0 +1,6 @@
+supplier_id,name,is_synthetic
+SYN-SUP-001,MedPharma Ltd,True
+SYN-SUP-002,VaxCare Pvt Ltd,True
+SYN-SUP-003,PlasmaSource India,True
+SYN-SUP-004,OncoMed Distributors,True
+SYN-SUP-005,ColdChain BioSupply (Synthetic),True

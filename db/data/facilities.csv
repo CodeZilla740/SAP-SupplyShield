@@ -7,3 +7,9 @@ WH-BLR,Bengaluru Warehouse,Bengaluru,WAREHOUSE,P2,,BLR-WH-01
 WH-HYD,Hyderabad DC,Hyderabad,WAREHOUSE,P2,,HYD-WH-01
 WH-MUM,Mumbai Hub,Mumbai,SUPPLIER,P2,,MUM-HUB-01
 PORT-MAA,Chennai Port,Chennai,PORT,P1,,INMAA
+WH-DEL,Delhi NCR Distribution Centre,Delhi NCR,WAREHOUSE,P2,,DEL-WH-01
+HOS-DEL,Delhi NCR Hospital,Delhi NCR,HOSPITAL,P1,Emergency,DEL-HOSP-01
+WH-KOL,Kolkata Distribution Centre,Kolkata,WAREHOUSE,P2,,KOL-WH-01
+HOS-KOL,Kolkata Medical Centre,Kolkata,HOSPITAL,P2,Critical Care,KOL-HOSP-01
+WH-PUN,Pune Distribution Centre,Pune,WAREHOUSE,P2,,PUN-WH-01
+HOS-PUN,Pune Hospital,Pune,HOSPITAL,P2,Emergency,PUN-HOSP-01

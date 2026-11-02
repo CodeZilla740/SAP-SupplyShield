@@ -1,0 +1,14 @@
+tracking_id,shipment_id,ts,latitude,longitude,location,status,delay_hours,is_synthetic
+SYN-TRK-001,SS-2048,2026-11-04T19:00:00+05:30,\N,\N,Chennai Port,Disrupted,48,True
+SYN-TRK-002,SS-2051,2026-11-04T19:00:00+05:30,\N,\N,Chennai Port,Monitoring,0,True
+SYN-TRK-003,SS-2056,2026-11-04T19:00:00+05:30,\N,\N,Hyderabad DC,Monitoring,0,True
+SYN-TRK-004,SS-2060,2026-11-04T19:00:00+05:30,\N,\N,Mumbai Hub,On track,0,True
+SYN-TRK-005,SS-2063,2026-11-04T19:00:00+05:30,\N,\N,Mumbai Hub,On track,0,True
+SYN-TRK-006,SS-2070,2026-11-04T19:00:00+05:30,\N,\N,Delhi NCR Distribution Centre,Monitoring,0,True
+SYN-TRK-007,SS-2071,2026-11-04T19:00:00+05:30,\N,\N,Kolkata Port,Disrupted,24,True
+SYN-TRK-008,SS-2072,2026-11-04T19:00:00+05:30,\N,\N,Pune Distribution Centre,Monitoring,0,True
+SYN-TRK-009,SS-2080,2026-11-04T19:00:00+05:30,\N,\N,Mumbai Port,Disrupted,36,True
+SYN-TRK-010,SS-2082,2026-11-04T19:00:00+05:30,\N,\N,Visakhapatnam Port,Disrupted,48,True
+SYN-TRK-011,SYN8001,2026-11-04T19:00:00+05:30,\N,\N,Chennai Port,On track,0,True
+SYN-TRK-012,SYN8002,2026-11-04T19:00:00+05:30,\N,\N,Mumbai Hub,On track,0,True
+SYN-TRK-013,SYN8003,2026-11-04T19:00:00+05:30,\N,\N,Hyderabad DC,On track,0,True

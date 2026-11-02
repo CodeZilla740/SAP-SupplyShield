@@ -19,6 +19,7 @@ const TABLES = [
   'purchase_orders',
   'shipments',
   'temperature_readings',
+  'shipment_tracking',
   'disruptions',
   'disruption_timeline',
   'infrastructure_status',

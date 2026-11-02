@@ -1,0 +1,252 @@
+{
+  "reference_timestamp": "2026-11-04T19:00:00+05:30",
+  "boot_analyzed_disruption_id": "INC-2026-1104-03",
+  "snapshot_total": 136,
+  "units": {
+    "inventory": "medicine-specific unit from medicines.csv",
+    "distance_km": "km",
+    "temperature_c": "degrees Celsius",
+    "carrier_cost": "USD",
+    "cost_per_km": "USD/km",
+    "avg_speed_kmh": "km/h",
+    "handling_hours": "hours",
+    "delay_hours": "hours",
+    "timestamps": "ISO 8601 with explicit timezone offset"
+  },
+  "counts": {
+    "facilities": 18,
+    "medicines": 6,
+    "suppliers": 5,
+    "carriers": 6,
+    "lanes": 20,
+    "inventory": 19,
+    "purchase_orders": 13,
+    "shipments": 13,
+    "temperature_readings": 13,
+    "shipment_tracking": 13,
+    "disruptions": 10
+  },
+  "assumptions": {
+    "label": "Synthetic scenario assumption; not operational or externally verified data.",
+    "source": "SupplyShield canonical simulated demo data plus explicitly labelled scenario assumptions.",
+    "carriers": [
+      {
+        "code": "SYN-ROAD",
+        "name": "Southbound Reefer (Synthetic)",
+        "mode": "ROAD",
+        "cold_chain_certified": 1,
+        "min_temp": 2.0,
+        "max_temp": 8.0,
+        "base_cost": 350.0,
+        "cost_per_km": 2.4,
+        "avg_speed_kmh": 55.0,
+        "handling_hours": 1.5,
+        "telemetry_capable": 1,
+        "vehicle": "SYN-REEFER-01"
+      },
+      {
+        "code": "SYN-AIR",
+        "name": "BlueSky Cold Cargo (Synthetic)",
+        "mode": "AIR",
+        "cold_chain_certified": 1,
+        "min_temp": 2.0,
+        "max_temp": 8.0,
+        "base_cost": 2800.0,
+        "cost_per_km": 1.4,
+        "avg_speed_kmh": 250.0,
+        "handling_hours": 4.0,
+        "telemetry_capable": 1,
+        "vehicle": "SYN-AIR-01"
+      }
+    ],
+    "lanes": [
+      {
+        "id": 10004,
+        "origin_code": "WH-BLR",
+        "destination_code": "HOS-APO",
+        "mode": "ROAD",
+        "distance_km": 350.0,
+        "carrier_code": "CAR-ROAD"
+      },
+      {
+        "id": 10005,
+        "origin_code": "WH-BLR",
+        "destination_code": "HOS-MAN",
+        "mode": "ROAD",
+        "distance_km": 420.0,
+        "carrier_code": "SYN-ROAD"
+      },
+      {
+        "id": 10006,
+        "origin_code": "WH-HYD",
+        "destination_code": "HOS-CITY",
+        "mode": "ROAD",
+        "distance_km": 570.0,
+        "carrier_code": "CAR-ROAD"
+      },
+      {
+        "id": 10007,
+        "origin_code": "WH-MUM",
+        "destination_code": "HOS-APO",
+        "mode": "AIR",
+        "distance_km": 850.0,
+        "carrier_code": "SYN-AIR"
+      },
+      {
+        "id": 10008,
+        "origin_code": "WH-MUM",
+        "destination_code": "HOS-MAN",
+        "mode": "AIR",
+        "distance_km": 900.0,
+        "carrier_code": "SYN-AIR"
+      },
+      {
+        "id": 10009,
+        "origin_code": "WH-DEL",
+        "destination_code": "HOS-MAN",
+        "mode": "ROAD",
+        "distance_km": 2150.0,
+        "carrier_code": "SYN-ROAD"
+      },
+      {
+        "id": 10010,
+        "origin_code": "WH-KOL",
+        "destination_code": "HOS-MAN",
+        "mode": "ROAD",
+        "distance_km": 1860.0,
+        "carrier_code": "SYN-ROAD"
+      },
+      {
+        "id": 10011,
+        "origin_code": "WH-PUN",
+        "destination_code": "HOS-APO",
+        "mode": "ROAD",
+        "distance_km": 840.0,
+        "carrier_code": "SYN-ROAD"
+      }
+    ],
+    "inventory": [
+      {
+        "facility_code": "WH-BLR",
+        "product_sku": "MED-MRNA",
+        "qty_on_hand": 280,
+        "reserved_qty": 0,
+        "daily_usage": 0,
+        "safety_stock": 100
+      },
+      {
+        "facility_code": "WH-BLR",
+        "product_sku": "MED-RABIES",
+        "qty_on_hand": 300,
+        "reserved_qty": 0,
+        "daily_usage": 0,
+        "safety_stock": 120
+      },
+      {
+        "facility_code": "WH-HYD",
+        "product_sku": "MED-PLASMA",
+        "qty_on_hand": 240,
+        "reserved_qty": 0,
+        "daily_usage": 0,
+        "safety_stock": 96
+      },
+      {
+        "facility_code": "HOS-MAN",
+        "product_sku": "MED-RABIES",
+        "qty_on_hand": 12,
+        "reserved_qty": 0,
+        "daily_usage": 24,
+        "safety_stock": 0
+      }
+    ],
+    "suppliers": [
+      { "supplier_id": "SYN-SUP-001", "name": "MedPharma Ltd" },
+      { "supplier_id": "SYN-SUP-002", "name": "VaxCare Pvt Ltd" },
+      { "supplier_id": "SYN-SUP-003", "name": "PlasmaSource India" },
+      { "supplier_id": "SYN-SUP-004", "name": "OncoMed Distributors" },
+      { "supplier_id": "SYN-SUP-005", "name": "ColdChain BioSupply (Synthetic)" }
+    ],
+    "additional_purchase_orders": [
+      {
+        "ebeln": "SYNPO0006",
+        "supplier_name": "MedPharma Ltd",
+        "product_sku": "MED-INSULIN",
+        "destination_code": "HOS-STM",
+        "qty": 1000,
+        "port": "INMAA",
+        "status": "IN_TRANSIT",
+        "eta": "2026-11-06"
+      },
+      {
+        "ebeln": "SYNPO0007",
+        "supplier_name": "VaxCare Pvt Ltd",
+        "product_sku": "MED-RABIES",
+        "destination_code": "HOS-MAN",
+        "qty": 400,
+        "port": "INBOM",
+        "status": "IN_TRANSIT",
+        "eta": "2026-11-06"
+      },
+      {
+        "ebeln": "SYNPO0008",
+        "supplier_name": "ColdChain BioSupply (Synthetic)",
+        "product_sku": "MED-PLASMA",
+        "destination_code": "HOS-CITY",
+        "qty": 240,
+        "port": "INHYD",
+        "status": "IN_TRANSIT",
+        "eta": "2026-11-05"
+      }
+    ],
+    "additional_shipments": [
+      {
+        "id": "SYN8001",
+        "po_ebeln": "SYNPO0006",
+        "product_sku": "MED-INSULIN",
+        "batch": "IN-84A29",
+        "origin_code": "PORT-MAA",
+        "origin_label": "Chennai Port",
+        "destination_code": "HOS-STM",
+        "destination_label": "St. Martha Hospital",
+        "route": "NH48 / Bengaluru",
+        "status": "On track",
+        "risk": "Low",
+        "delay_hours": 0,
+        "eta_text": "2026-11-06",
+        "current_temp": 4.2
+      },
+      {
+        "id": "SYN8002",
+        "po_ebeln": "SYNPO0007",
+        "product_sku": "MED-RABIES",
+        "batch": "RV-71B3",
+        "origin_code": "WH-MUM",
+        "origin_label": "Mumbai Hub",
+        "destination_code": "HOS-MAN",
+        "destination_label": "Manipal Hospital",
+        "route": "Air / Bengaluru",
+        "status": "On track",
+        "risk": "Low",
+        "delay_hours": 0,
+        "eta_text": "2026-11-06",
+        "current_temp": 3.9
+      },
+      {
+        "id": "SYN8003",
+        "po_ebeln": "SYNPO0008",
+        "product_sku": "MED-PLASMA",
+        "batch": "PL-49F7",
+        "origin_code": "WH-HYD",
+        "origin_label": "Hyderabad DC",
+        "destination_code": "HOS-CITY",
+        "destination_label": "City Care Network",
+        "route": "NH44 South",
+        "status": "On track",
+        "risk": "Low",
+        "delay_hours": 0,
+        "eta_text": "2026-11-05",
+        "current_temp": 5.1
+      }
+    ]
+  }
+}

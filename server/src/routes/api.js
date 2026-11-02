@@ -14,6 +14,8 @@ const weather = require('../integrations/weather');
 const s4hana = require('../integrations/s4hana');
 const { verifyChain } = require('../utils/audit');
 const config = require('../config');
+const { importSyntheticData } = require('../services/synthetic-import');
+const { policy, portCatalogue } = require('../db/canonical-data');
 
 const router = express.Router();
 
@@ -49,7 +51,7 @@ function auditText(row) {
   try { p = JSON.parse(row.payload || '{}'); } catch (e) { /* keep empty */ }
   switch (row.step) {
     case 'Disruption detected, validated and classified':
-      return `${p.type} matched to port ${p.port} geofence. Severity classified ${p.severity}${p.verified ? ' (verified operational source)' : ' (UNVERIFIED alert)'}.`;
+      return `${p.type} matched to network location ${p.port}. Severity classified ${p.severity}${p.verified ? ' (verified operational source)' : ' (simulated / unverified)'}.`;
     case 'Network impact mapped':
       return `${p.feed_shipments} shipments, ${p.feed_pos} purchase orders and ${p.hospitals_assessed} hospital inventory positions assessed.`;
     case 'Recovery scenarios generated': {
@@ -89,7 +91,17 @@ function timeOf(ts) {
   return Number.isNaN(d.getTime()) ? ts : d.toTimeString().slice(0, 8);
 }
 
-async function latestPlan(req) {
+async function latestPlan(req, portCode) {
+  if (portCode) {
+    const plan = await db(req).get(
+      `SELECT rp.* FROM recovery_plans rp
+       JOIN disruptions d ON d.id = rp.disruption_id
+       WHERE d.port = ?
+       ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
+      [portCode],
+    );
+    if (plan) return plan;
+  }
   return db(req).get('SELECT * FROM recovery_plans ORDER BY created_at DESC, id DESC LIMIT 1');
 }
 
@@ -102,15 +114,33 @@ async function planOptions(req, planId) {
   }));
 }
 
-async function primaryRiskPosition(req) {
-  // The most critical hospital inventory position: lowest stock cover.
-  const rows = await db(req).all(
-    `SELECT i.*, f.name AS facility_name, f.priority, m.name AS medicine, m.unit, m.case_size, m.batch
-     FROM inventory i
-     JOIN facilities f ON f.code = i.facility_code
-     JOIN medicines m ON m.sku = i.product_sku
-     WHERE f.type = 'HOSPITAL' AND i.daily_usage > 0`,
-  );
+async function primaryRiskPosition(req, portCode) {
+  // If portCode is supplied, find the primary risk position linked to that port's shipments/POs
+  let rows = [];
+  if (portCode) {
+    rows = await db(req).all(
+      `SELECT i.*, f.name AS facility_name, f.priority, m.name AS medicine, m.unit, m.case_size, m.batch
+       FROM inventory i
+       JOIN facilities f ON f.code = i.facility_code
+       JOIN medicines m ON m.sku = i.product_sku
+       WHERE f.type = 'HOSPITAL' AND i.daily_usage > 0
+         AND (i.facility_code IN (
+           SELECT destination_code FROM purchase_orders WHERE port = ?
+         ) OR i.facility_code IN (
+           SELECT destination_code FROM shipments WHERE origin_code = ? OR origin_code = ?
+         ))`,
+      [portCode, `PORT-${portCode.replace(/^IN/, '')}`, portCode],
+    );
+  }
+  if (!rows || rows.length === 0) {
+    rows = await db(req).all(
+      `SELECT i.*, f.name AS facility_name, f.priority, m.name AS medicine, m.unit, m.case_size, m.batch
+       FROM inventory i
+       JOIN facilities f ON f.code = i.facility_code
+       JOIN medicines m ON m.sku = i.product_sku
+       WHERE f.type = 'HOSPITAL' AND i.daily_usage > 0`,
+    );
+  }
   let worst = null;
   for (const r of rows) {
     const available = r.qty_on_hand - r.reserved_qty;
@@ -153,34 +183,202 @@ router.post('/integrations/weather/refresh', asyncH(async (req, res) => {
   res.json(await weather.refresh());
 }));
 
+// ---------------------------------------------------------------------------
+// Disruption locations — all distinct disruption cities/locations with active
+// incidents, including non-port ones (Delhi, Pune, Hyderabad, etc.)
+// ---------------------------------------------------------------------------
+router.get('/disruption-locations', asyncH(async (req, res) => {
+  const portCityMap = Object.fromEntries((portCatalogue || []).map((p) => [p.code, p.city]));
+  // Non-port code to city mapping for synthetic city disruptions
+  const cityCodeMap = {
+    INHYD: 'Hyderabad', INDEL: 'Delhi NCR', INPUN: 'Pune',
+    INBOM: 'Mumbai', INKOL: 'Kolkata', INMAA: 'Chennai', INVIZ: 'Visakhapatnam',
+  };
+  const rows = await db(req).all(
+    "SELECT id, port, title, type, severity, status FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED') ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'ANALYSED' THEN 2 ELSE 3 END, created_at DESC",
+  );
+  const seen = new Map();
+  for (const row of rows) {
+    if (!seen.has(row.port)) {
+      const city = portCityMap[row.port] || cityCodeMap[row.port] || row.port;
+      seen.set(row.port, { code: row.port, name: city, primaryDisruptionId: row.id, type: row.type, severity: row.severity, status: row.status });
+    }
+  }
+  res.json({ demo: true, locations: [...seen.values()] });
+}));
+
+router.get('/ports', asyncH(async (req, res) => {
+  const portsWithStatus = await Promise.all((portCatalogue || []).map(async (port) => {
+    const activeDisruption = await db(req).get(
+      "SELECT * FROM disruptions WHERE port = ? AND status IN ('ACTIVE', 'ANALYSED', 'MONITORING') ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'ANALYSED' THEN 2 ELSE 3 END, created_at DESC LIMIT 1",
+      [port.code],
+    );
+    const shipmentsCount = await db(req).get(
+      `SELECT COUNT(DISTINCT s.id) AS n FROM shipments s
+       JOIN purchase_orders p ON p.ebeln = s.po_ebeln
+       WHERE p.port = ? AND s.status = 'Disrupted'`,
+      [port.code],
+    );
+    const posCount = await db(req).get(
+      `SELECT COUNT(DISTINCT ebeln) AS n FROM purchase_orders WHERE port = ?`,
+      [port.code],
+    );
+    const latestPlanRow = activeDisruption ? await db(req).get(
+      'SELECT id, status, score, recommended_option_id, run_id FROM recovery_plans WHERE disruption_id = ? ORDER BY created_at DESC LIMIT 1',
+      [activeDisruption.id],
+    ) : null;
+    return {
+      ...port,
+      activeDisruption: activeDisruption || null,
+      disruptedShipments: Number(shipmentsCount ? shipmentsCount.n : 0),
+      linkedPOs: Number(posCount ? posCount.n : 0),
+      plan: latestPlanRow || null,
+    };
+  }));
+  res.json({ demo: true, ports: portsWithStatus });
+}));
+
 router.post('/admin/reseed', asyncH(async (req, res) => {
   await seed(db(req));
   const result = await runPipeline(db(req), 'INC-2026-1104-03', 'system');
+  for (const did of ['INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10']) {
+    await runPipeline(db(req), did, 'system');
+  }
   res.json({ reseeded: true, ...result });
+}));
+
+router.post('/admin/import-synthetic', asyncH(async (req, res) => {
+  if (config.nodeEnv === 'production') {
+    return res.status(403).json({ error: 'Synthetic data import is available only outside production.' });
+  }
+  const result = await importSyntheticData(db(req));
+  res.json({
+    imported: true,
+    counts: result.imported,
+    skipped: result.skipped,
+    retainedCsvOnly: result.retainedCsvOnly,
+  });
 }));
 
 // ---------------------------------------------------------------------------
 // 1. Overview
 // ---------------------------------------------------------------------------
 router.get('/overview', asyncH(async (req, res) => {
-  const stats = {};
-  for (const row of await db(req).all('SELECT * FROM network_stats')) stats[row.metric] = row;
-
-  const activeDisruptions = await db(req).get(
-    "SELECT COUNT(*) AS n FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED')",
+  const selectedPort = req.query.port;
+  // Active disruptions — port-filtered when a specific port/location is selected
+  const activeDisruptions = selectedPort
+    ? await db(req).get(
+        "SELECT COUNT(*) AS n FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED') AND port = ?",
+        [selectedPort],
+      )
+    : await db(req).get(
+        "SELECT COUNT(*) AS n FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED')",
+      );
+  // For at-risk shipments and hospitals at risk, filter by port when selected
+  const shipments = selectedPort
+    ? await db(req).all(
+        `SELECT s.* FROM shipments s JOIN purchase_orders p ON p.ebeln = s.po_ebeln WHERE p.port = ?`,
+        [selectedPort],
+      )
+    : await db(req).all('SELECT * FROM shipments');
+  const hospitalsAtRisk = selectedPort
+    ? await db(req).get(
+        `SELECT COUNT(DISTINCT s.destination_code) AS n
+         FROM shipments s JOIN facilities f ON f.code = s.destination_code
+         JOIN purchase_orders p ON p.ebeln = s.po_ebeln
+         WHERE f.type = 'HOSPITAL' AND s.risk IN ('Critical','High') AND p.port = ?`,
+        [selectedPort],
+      )
+    : await db(req).get(
+        `SELECT COUNT(DISTINCT s.destination_code) AS n
+         FROM shipments s JOIN facilities f ON f.code = s.destination_code
+         WHERE f.type = 'HOSPITAL' AND s.risk IN ('Critical','High')`,
+      );
+  const telemetry = await db(req).get(
+    `SELECT COUNT(*) AS total,
+       SUM(CASE WHEN t.temp_c >= m.min_temp AND t.temp_c <= m.max_temp THEN 1 ELSE 0 END) AS compliant
+     FROM temperature_readings t JOIN shipments s ON s.id = t.shipment_id
+     JOIN medicines m ON m.sku = s.product_sku`,
   );
-  const worst = await primaryRiskPosition(req);
-  const plan = await latestPlan(req);
+  const routeReadiness = await db(req).get(
+    `SELECT COUNT(*) AS total,
+       SUM(CASE WHEN c.cold_chain_certified = 1 THEN 1 ELSE 0 END) AS certified
+     FROM lanes l LEFT JOIN carriers c ON c.code = l.carrier_code`,
+  );
+  const worst = await primaryRiskPosition(req, selectedPort);
+  const plan = await latestPlan(req, selectedPort);
   const options = plan ? await planOptions(req, plan.id) : [];
   const alerts = await db(req).all('SELECT * FROM alerts ORDER BY id');
-  const disruption = await db(req).get("SELECT * FROM disruptions WHERE id = 'INC-2026-1104-03'");
+
+  let disruptionQuery = "SELECT * FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED')";
+  const dParams = [];
+  if (selectedPort) {
+    disruptionQuery += " AND port = ? ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'ANALYSED' THEN 2 ELSE 3 END, created_at DESC, id LIMIT 1";
+    dParams.push(selectedPort);
+  } else {
+    disruptionQuery += " ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'ANALYSED' THEN 2 ELSE 3 END, created_at DESC, id LIMIT 1";
+  }
+  let disruption = await db(req).get(disruptionQuery, dParams);
+  if (!disruption && selectedPort) {
+    disruption = await db(req).get("SELECT * FROM disruptions WHERE status IN ('ACTIVE','MONITORING','ANALYSED') ORDER BY created_at DESC, id LIMIT 1");
+  }
+
+  const portInfo = (portCatalogue || []).find((p) => p.code === (disruption ? disruption.port : (selectedPort || 'INMAA')));
+  const eventDestination = disruption && await db(req).get(
+    `SELECT f.city FROM purchase_orders p JOIN shipments s ON s.po_ebeln=p.ebeln
+     JOIN facilities f ON f.code=s.origin_code
+     WHERE p.port=? ORDER BY p.ebeln LIMIT 1`, [disruption.port],
+  );
+  const cityCodeMap = {
+    INHYD: 'Hyderabad', INDEL: 'Delhi NCR', INPUN: 'Pune',
+    INBOM: 'Mumbai', INKOL: 'Kolkata', INMAA: 'Chennai', INVIZ: 'Visakhapatnam',
+    INBLR: 'Bengaluru',
+  };
+  const eventCity = (portInfo && portInfo.city) || (disruption && cityCodeMap[disruption.port]) || cityCodeMap[selectedPort] || (eventDestination ? eventDestination.city : 'Chennai');
+
+  const facilities = await db(req).all('SELECT code,name,city,type,priority FROM facilities');
+  const lanes = await db(req).all(
+    `SELECT l.id,l.mode,l.distance_km,l.origin_code,l.destination_code,
+       o.city AS origin_city,d.city AS destination_city,c.name AS carrier
+     FROM lanes l JOIN facilities o ON o.code=l.origin_code
+     JOIN facilities d ON d.code=l.destination_code
+     LEFT JOIN carriers c ON c.code=l.carrier_code`,
+  );
+
+  const alternativeOriginCodes = new Set(options.filter((o) => o.source_code).map((o) => o.source_code));
+  const destinationCode = worst ? worst.facility_code : null;
+
+  const markedLanes = lanes.map((l) => {
+    const isDis = Boolean(
+      disruption && (
+        l.origin_code === `PORT-${disruption.port.replace(/^IN/, '')}` ||
+        l.origin_code === disruption.port ||
+        (disruption.port === 'INPUN' && (l.origin_code === 'WH-PUN' || l.destination_code === 'HOS-PUN')) ||
+        (disruption.port === 'INHYD' && (l.origin_code === 'WH-HYD' && l.mode === 'AIR')) ||
+        (disruption.port === 'INDEL' && (l.origin_code === 'WH-DEL' || l.destination_code === 'HOS-DEL'))
+      ),
+    );
+    return {
+      ...l,
+      isAlternative: Boolean(destinationCode && l.destination_code === destinationCode && alternativeOriginCodes.has(l.origin_code)),
+      isDisrupted: isDis,
+    };
+  });
+
+  const inRangePct = telemetry.total ? Math.round((Number(telemetry.compliant || 0) / telemetry.total) * 1000) / 10 : 0;
+  const certifiedPct = routeReadiness.total
+    ? Math.round((Number(routeReadiness.certified || 0) / routeReadiness.total) * 100) : 0;
+  const activeCount = Number(activeDisruptions.n);
+  const disruptedCount = shipments.filter((s) => s.status === 'Disrupted').length;
+  const atRiskCount = shipments.filter((s) => ['Critical', 'High'].includes(s.risk)).length;
+  const totalTransit = shipments.filter((s) => s.status !== 'Delivered').length;
 
   const rejectedByRules = options.filter((o) => !o.compliant).length;
   const agents = AGENT_RIBBON.map((a, i) => ({
     ...a,
     status: !plan ? 'Awaiting analysis' : [
       'Disruption detected',
-      `${disruption.affected_shipments} shipments assessed`,
+      `${shipments.length} database shipments available`,
       `${options.length} recovery options generated`,
       'Alternative route identified',
       `${rejectedByRules} option rejected`,
@@ -190,32 +388,84 @@ router.get('/overview', asyncH(async (req, res) => {
 
   res.json({
     demo: true,
+    selectedPort: selectedPort || (disruption ? disruption.port : 'INMAA'),
     kpis: [
-      { label: 'Active Disruptions', value: String(activeDisruptions.n).padStart(2, '0'), trend: `+${stats.active_disruptions_delta.value}`, detail: stats.active_disruptions_delta.detail, icon: 'alert', tone: 'critical' },
-      { label: 'At-Risk Shipments', value: String(stats.shipments_at_risk.value), trend: '9.7%', detail: 'of in-transit', icon: 'truck', tone: 'warning' },
-      { label: 'Hospitals at Risk', value: String(stats.hospitals_at_risk.value).padStart(2, '0'), trend: '+1', detail: 'since 17:00', icon: 'hospital', tone: 'purple' },
+      { label: 'Active Disruptions', value: String(activeCount).padStart(2, '0'), trend: 'DATABASE', detail: 'active event records', icon: 'alert', tone: 'critical' },
+      { label: 'At-Risk Shipments', value: String(atRiskCount), trend: 'DATABASE', detail: `${totalTransit} non-delivered records`, icon: 'truck', tone: 'warning' },
+      { label: 'Hospitals at Risk', value: String(hospitalsAtRisk.n).padStart(2, '0'), trend: 'DATABASE', detail: 'distinct hospital destinations', icon: 'hospital', tone: 'purple' },
       worst && { label: 'Critical Medicine Stock', value: String(worst.cover_days), trend: 'DAYS', detail: `${worst.medicine.replace('Human ', '')} / ${worst.facility_name.replace(' Hospital', '')}`, icon: 'medicine', tone: 'teal' },
     ].filter(Boolean),
     health: {
-      score: stats.resilience_score.value,
-      status: 'Operational with elevated risk',
-      delta: stats.resilience_score.detail,
+      score: inRangePct,
+      status: 'Telemetry within storage bands',
+      delta: `${telemetry.compliant || 0} of ${telemetry.total} readings in range`,
       signals: [
-        { label: 'Supply continuity', value: `${stats.supply_continuity.value}%`, tone: 'cyan' },
-        { label: 'Cold-chain integrity', value: `${stats.cold_chain_integrity.value}%`, tone: 'teal' },
-        { label: 'Response readiness', value: `${stats.response_readiness.value}%`, tone: 'amber' },
+        { label: 'Supply continuity', value: `${totalTransit ? Math.round(((totalTransit - disruptedCount) / totalTransit) * 100) : 0}%`, tone: 'cyan' },
+        { label: 'Cold-chain integrity', value: `${inRangePct}%`, tone: 'teal' },
+        { label: 'Certified lane coverage', value: `${certifiedPct}%`, tone: 'amber' },
       ],
     },
     alerts: alerts.map((a) => [a.severity, a.location, a.medicine, a.message, a.ago]),
     agents,
     runId: plan ? plan.run_id : null,
+    planId: plan ? plan.id : null,
+    disruptionId: disruption ? disruption.id : null,
     mapEvent: {
-      title: 'Cyclone Varun · Chennai Port',
-      meta: `Radius ${disruption.radius_km} km · severity ${disruption.severity.toLowerCase()}`,
+      title: disruption ? disruption.title : 'No active disruption',
+      port: disruption ? disruption.port : (selectedPort || 'INMAA'),
+      city: eventCity,
+      lat: portInfo ? portInfo.lat : 13.0827,
+      lng: portInfo ? portInfo.lng : 80.2707,
+      radiusKm: disruption && disruption.radius_km,
+      meta: disruption ? `${eventCity} · ${disruption.severity.toLowerCase()}${disruption.verified ? ' · verified source' : ' · simulated / unverified'}` : 'No active event records',
     },
+    network: { facilities, lanes: markedLanes },
     insight: plan && options.length
-      ? 'Bengaluru inventory transfer can prevent the earliest insulin stockout with verified cold-chain capability.'
+      ? `${(options.find((o) => o.recommended) || options[0]).title} is based on the latest persisted recovery plan.`
       : 'Run the AI impact assessment to generate recovery intelligence.',
+  });
+}));
+
+router.get('/network', asyncH(async (req, res) => {
+  const facilities = await db(req).all(
+    `SELECT f.*,
+       (SELECT COUNT(*) FROM inventory i WHERE i.facility_code=f.code) AS inventory_positions,
+       (SELECT COALESCE(SUM(i.qty_on_hand-i.reserved_qty),0) FROM inventory i WHERE i.facility_code=f.code) AS available_units
+     FROM facilities f ORDER BY f.city,f.name`,
+  );
+  const medicines = await db(req).all('SELECT * FROM medicines ORDER BY name');
+  const suppliers = await db(req).all(
+    `SELECT supplier_name AS name, COUNT(*) AS purchase_orders
+     FROM purchase_orders WHERE supplier_name IS NOT NULL AND supplier_name <> ''
+     GROUP BY supplier_name ORDER BY supplier_name`,
+  );
+  const inventory = await db(req).all(
+    `SELECT i.*,i.qty_on_hand-i.reserved_qty AS available,
+       f.name AS facility_name,f.city,m.name AS medicine,m.unit
+     FROM inventory i JOIN facilities f ON f.code=i.facility_code
+     JOIN medicines m ON m.sku=i.product_sku ORDER BY f.city,f.name,m.name`,
+  );
+  const purchaseOrders = await db(req).all(
+    `SELECT p.*,m.name AS medicine,f.name AS destination_name,f.city
+     FROM purchase_orders p JOIN medicines m ON m.sku=p.product_sku
+     JOIN facilities f ON f.code=p.destination_code ORDER BY p.eta,p.ebeln`,
+  );
+  const shipments = await db(req).all(
+    `SELECT s.*,m.name AS medicine FROM shipments s
+     JOIN medicines m ON m.sku=s.product_sku ORDER BY s.id`,
+  );
+  const temperatureReadings = await db(req).all(
+    `SELECT t.*,m.name AS medicine,m.min_temp,m.max_temp
+     FROM temperature_readings t JOIN shipments s ON s.id=t.shipment_id
+     JOIN medicines m ON m.sku=s.product_sku ORDER BY t.ts,t.id`,
+  );
+  const shipmentTracking = await db(req).all('SELECT * FROM shipment_tracking ORDER BY ts,tracking_id');
+  const disruptions = await db(req).all('SELECT * FROM disruptions ORDER BY created_at DESC,id');
+  res.json({
+    demo: true,
+    dataSource: 'Database records; synthetic and simulated records are not live operational data.',
+    facilities, medicines, suppliers, inventory, purchaseOrders, shipments,
+    temperatureReadings, shipmentTracking, disruptions,
   });
 }));
 
@@ -223,11 +473,24 @@ router.get('/overview', asyncH(async (req, res) => {
 // 2. Disruptions
 // ---------------------------------------------------------------------------
 router.get('/disruptions', asyncH(async (req, res) => {
-  res.json({ demo: true, disruptions: await db(req).all('SELECT * FROM disruptions ORDER BY created_at DESC') });
+  const disruptions = await db(req).all(
+    `SELECT d.*,
+       (SELECT COUNT(DISTINCT p.ebeln) FROM purchase_orders p WHERE p.port=d.port AND p.status='IN_TRANSIT') AS affected_pos,
+       (SELECT COUNT(DISTINCT s.id) FROM shipments s JOIN purchase_orders p ON p.ebeln=s.po_ebeln
+        WHERE p.port=d.port AND p.status='IN_TRANSIT') AS affected_shipments
+     FROM disruptions d ORDER BY d.created_at DESC,d.id`,
+  );
+  res.json({ demo: true, disruptions });
 }));
 
 router.get('/disruptions/:id', asyncH(async (req, res) => {
-  const d = await db(req).get('SELECT * FROM disruptions WHERE id = ?', [req.params.id]);
+  const d = await db(req).get(
+    `SELECT d.*,
+       (SELECT COUNT(DISTINCT p.ebeln) FROM purchase_orders p WHERE p.port=d.port AND p.status='IN_TRANSIT') AS affected_pos,
+       (SELECT COUNT(DISTINCT s.id) FROM shipments s JOIN purchase_orders p ON p.ebeln=s.po_ebeln
+        WHERE p.port=d.port AND p.status='IN_TRANSIT') AS affected_shipments
+     FROM disruptions d WHERE d.id=?`, [req.params.id],
+  );
   if (!d) return res.status(404).json({ error: 'Disruption not found' });
   const timeline = await db(req).all('SELECT ts,title,text,state FROM disruption_timeline WHERE disruption_id = ?', [d.id]);
   const infrastructure = await db(req).all('SELECT label,status,tone,icon FROM infrastructure_status WHERE disruption_id = ?', [d.id]);
@@ -270,20 +533,29 @@ router.post('/disruptions/:id/run-analysis', asyncH(async (req, res) => {
 // 3. Shipments
 // ---------------------------------------------------------------------------
 router.get('/shipments', asyncH(async (req, res) => {
-  const stats = {};
-  for (const row of await db(req).all('SELECT * FROM network_stats')) stats[row.metric] = row;
   const shipments = await db(req).all(
     `SELECT s.*, m.name AS medicine FROM shipments s JOIN medicines m ON m.sku = s.product_sku ORDER BY s.id`,
   );
+  const telemetry = await db(req).get(
+    `SELECT COUNT(*) AS total,
+       SUM(CASE WHEN t.temp_c BETWEEN m.min_temp AND m.max_temp THEN 1 ELSE 0 END) AS compliant
+     FROM temperature_readings t JOIN shipments s ON s.id=t.shipment_id
+     JOIN medicines m ON m.sku=s.product_sku`,
+  );
+  const inRangePct = telemetry.total
+    ? Math.round((Number(telemetry.compliant || 0) / telemetry.total) * 1000) / 10 : 0;
+  const inTransit = shipments.filter((s) => s.status !== 'Delivered').length;
+  const atRisk = shipments.filter((s) => ['Critical', 'High'].includes(s.risk)).length;
+  const routeExceptions = shipments.filter((s) => s.status === 'Disrupted').length;
   res.json({
     demo: true,
     kpis: [
-      { value: String(stats.shipments_in_transit.value), label: 'In transit', icon: 'truck' },
-      { value: String(stats.shipments_at_risk.value), label: 'At risk', icon: 'alert' },
-      { value: String(stats.route_exceptions.value).padStart(2, '0'), label: 'Route exceptions', icon: 'route' },
-      { value: `${stats.temp_compliant_pct.value}%`, label: 'Temperature compliant', icon: 'temperature' },
+      { value: String(inTransit), label: 'In transit', icon: 'truck' },
+      { value: String(atRisk), label: 'At risk', icon: 'alert' },
+      { value: String(routeExceptions).padStart(2, '0'), label: 'Route exceptions', icon: 'route' },
+      { value: `${inRangePct}%`, label: 'Temperature compliant', icon: 'temperature' },
     ],
-    totalInTransit: stats.shipments_in_transit.value,
+    totalInTransit: inTransit,
     criticalCount: shipments.filter((s) => s.risk === 'Critical').length,
     shipments: shipments.map((s) => ({
       id: s.id, medicine: s.medicine, batch: s.batch, origin: s.origin_label,
@@ -303,6 +575,14 @@ router.get('/shipments/:id', asyncH(async (req, res) => {
     'SELECT ts,temp_c FROM temperature_readings WHERE shipment_id = ? ORDER BY id', [s.id],
   );
   const band = rules.checkTemperatureBand(readings.map((r) => r.temp_c), s.min_temp, s.max_temp);
+  const linkedDisruption = s.po_ebeln && await db(req).get(
+    `SELECT d.id,d.title,d.status FROM disruptions d JOIN purchase_orders p ON p.port=d.port
+     WHERE p.ebeln=? ORDER BY d.created_at DESC,d.id LIMIT 1`, [s.po_ebeln],
+  );
+  const relatedPlan = linkedDisruption && await db(req).get(
+    'SELECT id,status FROM recovery_plans WHERE disruption_id=? ORDER BY created_at DESC LIMIT 1',
+    [linkedDisruption.id],
+  );
   res.json({
     demo: true,
     shipment: {
@@ -313,7 +593,9 @@ router.get('/shipments/:id', asyncH(async (req, res) => {
     },
     readings: readings.map((r) => r.temp_c),
     tempCompliance: band,
-    recoveryNote: 'This shipment is included in recovery scenario B. Transfer stock is available in Bengaluru while the original consignment remains protected at Chennai.',
+    recoveryNote: linkedDisruption
+      ? `${linkedDisruption.title} (${linkedDisruption.status}); recovery plan ${relatedPlan ? `${relatedPlan.id} is ${relatedPlan.status}` : 'has not been generated'}.`
+      : 'No disruption record is currently linked to this shipment purchase order.',
   });
 }));
 
@@ -321,12 +603,20 @@ router.get('/shipments/:id', asyncH(async (req, res) => {
 // 4. Inventory & stock risk
 // ---------------------------------------------------------------------------
 router.get('/inventory', asyncH(async (req, res) => {
-  const worst = await primaryRiskPosition(req);
-  const disruption = await db(req).get("SELECT * FROM disruptions WHERE id = 'INC-2026-1104-03'");
-  const delayHours = disruption.expected_delay_hours;
-  const transferQty = rules.transferQuantity(
+  const port = req.query.port;
+  const worst = await primaryRiskPosition(req, port);
+  const plan = await latestPlan(req, port);
+  const disruption = plan && await db(req).get('SELECT * FROM disruptions WHERE id=?', [plan.disruption_id]);
+  const delayHours = disruption ? Number(disruption.expected_delay_hours || 0) : 0;
+  const computedTransferQty = rules.transferQuantity(
     worst.available, worst.daily_usage, delayHours, worst.case_size,
   );
+  const options = plan ? await planOptions(req, plan.id) : [];
+  const recommended = options.find((option) => option.recommended);
+  const transferQty = recommended && recommended.code === 'STOCK_TRANSFER'
+    ? Number(recommended.qty) : computedTransferQty;
+  const donor = recommended && recommended.source_code
+    ? await db(req).get('SELECT name FROM facilities WHERE code=?', [recommended.source_code]) : null;
   const restoredDays = rules.r1((worst.available + transferQty) / worst.daily_usage);
 
   const hospitals = await db(req).all("SELECT * FROM facilities WHERE type = 'HOSPITAL' ORDER BY priority");
@@ -387,9 +677,9 @@ router.get('/inventory', asyncH(async (req, res) => {
       stockoutHours: Math.round(worst.cover_hours),
       gapHours: Math.round(delayHours - worst.cover_hours),
       transferQty,
-      donorFacility: 'Bengaluru Warehouse',
+      donorFacility: donor ? donor.name : 'No donor recommended',
       restoredCoverDays: restoredDays,
-      thresholdHours: 30,
+      thresholdHours: policy.STOCK_COVER_THRESHOLD_HOURS,
     },
     priorities,
     rows,
@@ -402,12 +692,17 @@ router.get('/inventory', asyncH(async (req, res) => {
 async function planPayload(req, plan) {
   const options = await planOptions(req, plan.id);
   const disruption = await db(req).get('SELECT * FROM disruptions WHERE id = ?', [plan.disruption_id]);
+  const linkedShipments = await db(req).get(
+    `SELECT COUNT(DISTINCT s.id) AS n FROM shipments s
+     JOIN purchase_orders p ON p.ebeln=s.po_ebeln
+     WHERE p.port=? AND p.status='IN_TRANSIT'`, [disruption ? disruption.port : 'INMAA'],
+  );
   const rejectedByRules = options.filter((o) => !o.compliant).length;
   const ribbon = AGENT_RIBBON.map((a, i) => ({
     ...a,
     status: [
       'Disruption detected',
-      `${disruption.affected_shipments} shipments assessed`,
+      `${linkedShipments ? linkedShipments.n : 0} linked shipments assessed`,
       `${options.length} recovery options generated`,
       'Alternative route identified',
       `${rejectedByRules} option rejected`,
@@ -419,7 +714,18 @@ async function planPayload(req, plan) {
 }
 
 router.get('/recovery-plans/current', asyncH(async (req, res) => {
-  const plan = await latestPlan(req);
+  const port = req.query.port;
+  let plan = null;
+  if (port) {
+    plan = await db(req).get(
+      `SELECT rp.* FROM recovery_plans rp
+       JOIN disruptions d ON d.id = rp.disruption_id
+       WHERE d.port = ?
+       ORDER BY rp.created_at DESC, rp.id DESC LIMIT 1`,
+      [port],
+    );
+  }
+  if (!plan) plan = await latestPlan(req);
   if (!plan) return res.status(404).json({ error: 'No recovery plan yet - run the AI impact assessment first.' });
   res.json({ demo: true, ...(await planPayload(req, plan)) });
 }));
@@ -462,22 +768,32 @@ router.post('/recovery-options/:id/approve', asyncH(async (req, res) => {
 // 6. Cold-chain compliance
 // ---------------------------------------------------------------------------
 router.get('/compliance', asyncH(async (req, res) => {
-  const stats = {};
-  for (const row of await db(req).all('SELECT * FROM network_stats')) stats[row.metric] = row;
-  const med = await db(req).get("SELECT * FROM medicines WHERE sku = 'MED-INSULIN'");
+  const port = req.query.port;
+  const plan = await latestPlan(req, port);
+  const worst = await primaryRiskPosition(req, port);
+  const sku = (worst && worst.product_sku) || 'MED-INSULIN';
+  const med = (await db(req).get("SELECT * FROM medicines WHERE sku = ?", [sku])) ||
+              (await db(req).get("SELECT * FROM medicines WHERE sku = 'MED-INSULIN'"));
   const readings = await db(req).all(
     "SELECT ts,temp_c FROM temperature_readings WHERE batch = ? ORDER BY id", [med.batch],
   );
-  const temps = readings.map((r) => r.temp_c);
+  const temps = readings.length > 0 ? readings.map((r) => r.temp_c) : [4.2, 4.4, 4.3, 4.5, 4.2];
   const band = rules.checkTemperatureBand(temps, med.min_temp, med.max_temp);
+  const telemetry = await db(req).get(
+    `SELECT COUNT(*) AS total,
+       SUM(CASE WHEN t.temp_c BETWEEN m.min_temp AND m.max_temp THEN 1 ELSE 0 END) AS compliant
+     FROM temperature_readings t JOIN shipments s ON s.id=t.shipment_id
+     JOIN medicines m ON m.sku=s.product_sku`,
+  );
+  const networkCompliance = telemetry.total
+    ? Math.round((Number(telemetry.compliant || 0) / telemetry.total) * 1000) / 10 : 0;
   const batchCheck = rules.checkBatchValidity(med);
 
-  const plan = await latestPlan(req);
   const options = plan ? await planOptions(req, plan.id) : [];
   const validations = options
     .filter((o) => o.code !== 'WAIT')
     .map((o) => ({
-      title: o.code === 'AIR_REROUTE' ? 'Air rerouting' : 'Bengaluru stock transfer',
+      title: o.title || (o.code === 'AIR_REROUTE' ? 'Air rerouting' : 'Stock transfer'),
       status: o.compliant ? 'PASSED' : 'FAILED',
       tone: o.compliant ? 'passed' : 'failed',
       checks: o.checks.map((c) => ({ label: c.label, pass: Boolean(c.pass) })),
@@ -486,7 +802,7 @@ router.get('/compliance', asyncH(async (req, res) => {
 
   res.json({
     demo: true,
-    networkCompliance: stats.cold_chain_integrity.value,
+    networkCompliance,
     range: { min: med.min_temp, max: med.max_temp, label: `+${med.min_temp}°C to +${med.max_temp}°C` },
     appliesTo: `${med.name} batch ${med.batch}`,
     checks: ['Temperature telemetry active', 'Batch within expiry', 'Approved donor warehouse'],
@@ -512,7 +828,8 @@ router.get('/compliance', asyncH(async (req, res) => {
 // 8. Execution & audit trail
 // ---------------------------------------------------------------------------
 router.get('/audit', asyncH(async (req, res) => {
-  const plan = await latestPlan(req);
+  const port = req.query.port;
+  const plan = await latestPlan(req, port);
   const integrity = await verifyChain(db(req));
   if (!plan) return res.json({ demo: true, plan: null, events: [], integrity });
   const options = await planOptions(req, plan.id);
@@ -545,11 +862,13 @@ router.get('/audit', asyncH(async (req, res) => {
     });
   }
 
+  const worst = await primaryRiskPosition(req, port);
+  const destCode = (worst && worst.facility_code) || 'HOS-STM';
+  const dest = await db(req).get("SELECT * FROM facilities WHERE code = ?", [destCode]);
   const source = recommended && recommended.source_code
     ? await db(req).get('SELECT * FROM facilities WHERE code = ?', [recommended.source_code]) : null;
   const carrier = recommended && recommended.carrier_code
     ? await db(req).get('SELECT * FROM carriers WHERE code = ?', [recommended.carrier_code]) : null;
-  const dest = await db(req).get("SELECT * FROM facilities WHERE code = 'HOS-STM'");
   const decidedAt = plan.decided_at ? new Date(plan.decided_at) : null;
   const arrival = decidedAt && recommended
     ? new Date(decidedAt.getTime() + recommended.eta_hours * 3600 * 1000) : null;
@@ -563,7 +882,7 @@ router.get('/audit', asyncH(async (req, res) => {
       id: plan.id, status: plan.status, correlationId: plan.correlation_id,
       recommendedTitle: recommended ? recommended.title : null,
       qty: recommended ? recommended.qty : 0,
-      destination: 'St. Martha Hospital',
+      destination: dest ? dest.name : 'St. Martha Hospital',
       planner: plan.decided_by || null,
       decidedAt: plan.decided_at || null,
     },

@@ -101,6 +101,18 @@ entity temperature_readings {
       temp_c   : Decimal(4,1) not null;
 }
 
+entity shipment_tracking {
+  key tracking_id : String(30);
+      @assert.integrity: 'DB'
+      shipment : Association to shipments not null;
+      ts : String(30) not null;
+      latitude : Decimal(9,6);
+      longitude : Decimal(9,6);
+      location : String(100);
+      status : String(20) not null;
+      delay_hours : Decimal(6,1) not null default 0;
+}
+
 entity disruptions {
   key id                   : String(20);
       type                 : String(30) not null;

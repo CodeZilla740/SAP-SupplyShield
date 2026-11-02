@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS temperature_readings (
   temp_c      REAL NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS shipment_tracking (
+  tracking_id TEXT PRIMARY KEY,
+  shipment_id TEXT NOT NULL REFERENCES shipments(id),
+  ts TEXT NOT NULL,
+  latitude REAL,
+  longitude REAL,
+  location TEXT,
+  status TEXT NOT NULL,
+  delay_hours REAL NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS disruptions (
   id                   TEXT PRIMARY KEY,
   type                 TEXT NOT NULL,

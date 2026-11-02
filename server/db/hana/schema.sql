@@ -110,6 +110,17 @@ CREATE COLUMN TABLE temperature_readings (
   temp_c      DECIMAL(4,1) NOT NULL
 );
 
+CREATE COLUMN TABLE shipment_tracking (
+  tracking_id NVARCHAR(30) PRIMARY KEY,
+  shipment_id NVARCHAR(10) NOT NULL REFERENCES shipments(id),
+  ts NVARCHAR(30) NOT NULL,
+  latitude DECIMAL(9,6),
+  longitude DECIMAL(9,6),
+  location NVARCHAR(100),
+  status NVARCHAR(20) NOT NULL,
+  delay_hours DECIMAL(6,1) NOT NULL DEFAULT 0
+);
+
 CREATE COLUMN TABLE disruptions (
   id                   NVARCHAR(20) PRIMARY KEY,
   type                 NVARCHAR(30) NOT NULL,

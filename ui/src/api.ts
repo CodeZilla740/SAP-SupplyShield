@@ -78,8 +78,13 @@ async function send<T>(base: string, path: string, init?: RequestInit): Promise<
       canUseExpressFallback(response.status, body, text),
     )
   }
+  if (response.headers.get("content-type")?.toLowerCase().includes("text/html")) {
+    throw apiError("API endpoint returned the website page instead of JSON", response.status, true)
+  }
   return withoutODataContext<T>(body)
 }
+
+const expressReq = <T>(path: string, init?: RequestInit) => send<T>(EXPRESS_BASE, path, init)
 
 async function req<T>(
   capPath: string,
@@ -123,8 +128,34 @@ export interface AgentStatus {
   warning: boolean
 }
 
+export interface PortItem {
+  code: string
+  name: string
+  city: string
+  lat: number
+  lng: number
+  facilityCode: string
+  primaryDisruptionId: string
+  defaultDisruptionType: string
+  description: string
+  activeDisruption: DisruptionDetail["disruption"] | null
+  disruptedShipments: number
+  linkedPOs: number
+  plan: { id: string; status: string; score: number; recommended_option_id: string; run_id?: string } | null
+}
+
+export interface DisruptionLocation {
+  code: string
+  name: string
+  primaryDisruptionId: string
+  type: string
+  severity: string
+  status: string
+}
+
 export interface OverviewData {
   demo: boolean
+  selectedPort?: string
   kpis: { label: string; value: string; trend: string; detail: string; icon: string; tone: string }[]
   health: {
     score: number
@@ -135,8 +166,47 @@ export interface OverviewData {
   alerts: AlertRow[]
   agents: AgentStatus[]
   runId: string | null
-  mapEvent: { title: string; meta: string }
+  planId?: string | null
+  disruptionId?: string | null
+  mapEvent: {
+    title: string
+    meta: string
+    city: string | null
+    port?: string | null
+    lat?: number
+    lng?: number
+    radiusKm: number | null
+  }
   insight: string
+  network: {
+    facilities: { code: string; name: string; city: string; type: string; priority: string | null }[]
+    lanes: {
+      id: number
+      mode: string
+      distance_km: number
+      origin_code: string
+      destination_code: string
+      origin_city: string
+      destination_city: string
+      carrier: string | null
+      isAlternative?: boolean
+      isDisrupted?: boolean
+    }[]
+  }
+}
+
+export interface NetworkData {
+  demo: boolean
+  dataSource: string
+  facilities: Record<string, unknown>[]
+  medicines: Record<string, unknown>[]
+  suppliers: Record<string, unknown>[]
+  inventory: Record<string, unknown>[]
+  purchaseOrders: Record<string, unknown>[]
+  shipments: Record<string, unknown>[]
+  temperatureReadings: Record<string, unknown>[]
+  shipmentTracking: Record<string, unknown>[]
+  disruptions: Record<string, unknown>[]
 }
 
 export interface DisruptionDetail {
@@ -326,32 +396,30 @@ export interface AuditData {
 
 // ---------- endpoints ----------
 export const getHealth = () =>
-  req<HealthInfo>("/health()", "/health")
-export const getOverview = () =>
-  req<OverviewData>("/overview()", "/overview")
+  expressReq<HealthInfo>("/health")
+export const getPorts = () =>
+  expressReq<{ demo: boolean; ports: PortItem[] }>("/ports")
+
+export const getDisruptionLocations = () =>
+  expressReq<{ demo: boolean; locations: DisruptionLocation[] }>("/disruption-locations")
+export const getOverview = (port?: string) =>
+  expressReq<OverviewData>(`/overview${port ? `?port=${encodeURIComponent(port)}` : ""}`)
+export const getNetwork = () =>
+  expressReq<NetworkData>("/network")
 export const getIntegrationStatus = () =>
-  req<Record<string, unknown>>("/integrationsStatus()", "/integrations/status")
+  expressReq<Record<string, unknown>>("/integrations/status")
 export const refreshWeather = () =>
-  req<Record<string, unknown>>("/refreshWeather", "/integrations/weather/refresh", {
+  expressReq<Record<string, unknown>>("/integrations/weather/refresh", {
     method: "POST",
     body: "{}",
   })
 export const listDisruptions = () =>
-  req<{ demo: boolean; disruptions: DisruptionDetail["disruption"][] }>(
-    "/listDisruptions()",
-    "/disruptions",
-  )
+  expressReq<{ demo: boolean; disruptions: DisruptionDetail["disruption"][] }>("/disruptions")
 export const getDisruption = (id: string) =>
-  req<DisruptionDetail>(
-    `/disruptionDetails(id=${odataString(id)})`,
-    `/disruptions/${encodeURIComponent(id)}`,
-  )
+  expressReq<DisruptionDetail>(`/disruptions/${encodeURIComponent(id)}`)
 export const runAnalysis = (id: string) =>
-  req<{ message: string; planId: string; optionsGenerated: number }>(
-    "/runAnalysis",
-    `/disruptions/${encodeURIComponent(id)}/run-analysis`,
-    { method: "POST", body: JSON.stringify({ disruptionId: id }) },
-    { method: "POST", body: "{}" },
+  expressReq<{ message: string; planId: string; optionsGenerated: number }>(
+    `/disruptions/${encodeURIComponent(id)}/run-analysis`, { method: "POST", body: "{}" },
   )
 export const createDisruption = (body: {
   type: string
@@ -359,51 +427,39 @@ export const createDisruption = (body: {
   severity: string
   duration: string
   description: string
-}) => req<{ id: string; message: string }>(
-  "/createDisruption",
+}) => expressReq<{ id: string; message: string }>(
   "/disruptions",
   { method: "POST", body: JSON.stringify(body) },
 )
-export const getShipments = () =>
-  req<ShipmentsData>("/shipmentOverview()", "/shipments")
+export const getShipments = (port?: string) =>
+  expressReq<ShipmentsData>(`/shipments${port ? `?port=${encodeURIComponent(port)}` : ""}`)
 export const getShipment = (id: string) =>
-  req<ShipmentDetail>(
-    `/shipmentDetails(id=${odataString(id)})`,
-    `/shipments/${encodeURIComponent(id)}`,
-  )
-export const getInventory = () =>
-  req<InventoryData>("/inventoryOverview()", "/inventory")
-export const getCurrentPlan = () =>
-  req<PlanData>("/currentRecoveryPlan()", "/recovery-plans/current")
+  expressReq<ShipmentDetail>(`/shipments/${encodeURIComponent(id)}`)
+export const getInventory = (port?: string) =>
+  expressReq<InventoryData>(`/inventory${port ? `?port=${encodeURIComponent(port)}` : ""}`)
+export const getCurrentPlan = (port?: string) =>
+  expressReq<PlanData>(`/recovery-plans/current${port ? `?port=${encodeURIComponent(port)}` : ""}`)
 export const getRecoveryPlan = (id: string) =>
-  req<PlanData>(
-    `/recoveryPlanDetails(id=${odataString(id)})`,
-    `/recovery-plans/${encodeURIComponent(id)}`,
-  )
+  expressReq<PlanData>(`/recovery-plans/${encodeURIComponent(id)}`)
 export const approvePlan = (id: string, comment: string) =>
-  req<{ status: string; executionNote: string }>(
-    "/approveRecoveryPlan",
+  expressReq<{ status: string; executionNote: string }>(
     `/recovery-plans/${encodeURIComponent(id)}/approve`,
-    { method: "POST", body: JSON.stringify({ planId: id, comment }) },
     { method: "POST", body: JSON.stringify({ comment }) },
   )
 export const rejectPlan = (id: string, comment: string) =>
-  req<{ status: string }>(
-    "/rejectRecoveryPlan",
+  expressReq<{ status: string }>(
     `/recovery-plans/${encodeURIComponent(id)}/reject`,
-    { method: "POST", body: JSON.stringify({ planId: id, comment }) },
     { method: "POST", body: JSON.stringify({ comment }) },
   )
 export const approveOption = (optionId: string, comment: string) =>
-  req<{ status: string; executionNote: string }>(
-    "/approveRecoveryOption",
+  expressReq<{ status: string; executionNote: string }>(
     `/recovery-options/${encodeURIComponent(optionId)}/approve`,
     { method: "POST", body: JSON.stringify({ optionId, comment }) },
   )
-export const getCompliance = () =>
-  req<ComplianceData>("/complianceOverview()", "/compliance")
-export const getAudit = () =>
-  req<AuditData>("/auditHistory()", "/audit")
+export const getCompliance = (port?: string) =>
+  expressReq<ComplianceData>(`/compliance${port ? `?port=${encodeURIComponent(port)}` : ""}`)
+export const getAudit = (port?: string) =>
+  expressReq<AuditData>(`/audit${port ? `?port=${encodeURIComponent(port)}` : ""}`)
 
 export function downloadJson(filename: string, data: unknown) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" })

@@ -122,13 +122,13 @@ test('analysis for different disruptions allocates distinct IDs and keeps option
   await db.run(
     `INSERT INTO disruptions (id,type,title,port,severity,description,status,radius_km,wind_kmh,expected_delay_hours,affected_shipments,affected_pos,verified,source,created_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    ['INC-2026-1104-04', disruption.type, disruption.title, disruption.port,
+    ['INC-2026-TEST-04', disruption.type, disruption.title, disruption.port,
       disruption.severity, disruption.description, disruption.status, disruption.radius_km,
       disruption.wind_kmh, disruption.expected_delay_hours, disruption.affected_shipments,
       disruption.affected_pos, disruption.verified, disruption.source, disruption.created_at],
   );
   const second = await require('../src/agents/orchestrator')
-    .runPipeline(db, 'INC-2026-1104-04', 'test');
+    .runPipeline(db, 'INC-2026-TEST-04', 'test');
   assert.notEqual(first.runId, second.runId);
   assert.notEqual(first.planId, second.planId);
   for (const planId of [first.planId, second.planId]) {

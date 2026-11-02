@@ -5,7 +5,7 @@
 const data = require('./canonical-data');
 
 const CLEAR_ORDER = [
-  'temperature_readings', 'shipments', 'recovery_options', 'approvals',
+  'temperature_readings', 'shipment_tracking', 'shipments', 'recovery_options', 'approvals',
   'recovery_plans', 'audit_log', 'purchase_orders', 'lanes', 'carriers',
   'inventory', 'disruption_timeline', 'infrastructure_status', 'disruptions',
   'alerts', 'network_stats', 'facilities', 'medicines',
@@ -21,6 +21,7 @@ async function seed(db, { includeMasterData = true } = {}) {
   if (includeMasterData) await clearAll(db);
 
   let temperatureReadingId = 1;
+  let trackingId = 1;
   for (const m of data.medicines) {
     await db.run(
       `INSERT INTO medicines (sku,name,min_temp,max_temp,unit,case_size,unit_cost,batch,manufactured,expiry,gdp_class)
@@ -74,6 +75,15 @@ async function seed(db, { includeMasterData = true } = {}) {
         [temperatureReadingId++, s.id, s.batch, `T-${temps.length - i}h`, temps[i]],
       );
     }
+    const trkId = s.id.startsWith('SS-208')
+      ? `TRK-${s.id}`
+      : `SYN-TRK-${String(trackingId++).padStart(3, '0')}`;
+    await db.run(
+      `INSERT INTO shipment_tracking (tracking_id,shipment_id,ts,latitude,longitude,location,status,delay_hours)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [trkId, s.id, '2026-11-04T17:11:00+05:30',
+        null, null, s.origin_label, s.status, s.delay_hours],
+    );
   }
   // Insulin batch telemetry (compliance screen): 24 half-hourly readings,
   // timestamps anchored to the canonical demo window 12:00 -> 18:00 IST.
@@ -123,4 +133,91 @@ async function seed(db, { includeMasterData = true } = {}) {
   }
 }
 
-module.exports = { seed, clearAll };
+async function seedGeographicAdditions(db) {
+  const facilityCodes = new Set(['WH-DEL', 'HOS-DEL', 'WH-KOL', 'HOS-KOL', 'WH-PUN', 'HOS-PUN']);
+  const additions = [
+    { table: 'facilities', columns: ['code', 'name', 'city', 'type', 'priority', 'ward', 'storage_loc'], keys: ['code'],
+      rows: data.facilities.filter((row) => facilityCodes.has(row.code)) },
+    { table: 'inventory', columns: ['facility_code', 'product_sku', 'qty_on_hand', 'reserved_qty', 'daily_usage', 'safety_stock'], keys: ['facility_code', 'product_sku'],
+      rows: data.inventory.filter((row) => facilityCodes.has(row.facility_code)) },
+    { table: 'lanes', columns: ['id', 'origin_code', 'destination_code', 'mode', 'distance_km', 'carrier_code'], keys: ['id'],
+      rows: data.lanes.filter((row) => row.id >= 4 && row.id <= 9) },
+    { table: 'purchase_orders', columns: ['ebeln', 'supplier_name', 'product_sku', 'destination_code', 'qty', 'port', 'status', 'eta'], keys: ['ebeln'],
+      rows: data.purchaseOrders.filter((row) => row.ebeln.startsWith('PO-884')) },
+    { table: 'shipments', columns: ['id', 'po_ebeln', 'product_sku', 'batch', 'origin_code', 'origin_label', 'destination_code', 'destination_label', 'route', 'status', 'risk', 'delay_hours', 'eta_text', 'current_temp'], keys: ['id'],
+      rows: data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2072') },
+    { table: 'disruptions', columns: ['id', 'type', 'title', 'port', 'severity', 'description', 'status', 'radius_km', 'wind_kmh', 'expected_delay_hours', 'affected_shipments', 'affected_pos', 'verified', 'source', 'created_at'], keys: ['id'],
+      rows: data.disruptions.filter((row) => row.id >= 'INC-2026-1104-04') },
+    { table: 'disruption_timeline', columns: ['disruption_id', 'ts', 'title', 'text', 'state'], keys: ['disruption_id', 'ts'],
+      rows: data.disruptionTimeline.filter((row) => row.disruption_id !== 'INC-2026-1104-03') },
+    { table: 'infrastructure_status', columns: ['disruption_id', 'label', 'status', 'tone', 'icon'], keys: ['disruption_id', 'label'],
+      rows: data.infrastructureStatus.filter((row) => row.disruption_id !== 'INC-2026-1104-03') },
+  ];
+  const inserted = {};
+  const same = (left, right) => {
+    if (right === null || right === undefined) return left === null || left === undefined;
+    if (typeof right === 'number') return left !== null && left !== undefined && Number(left) === right;
+    return String(left) === String(right);
+  };
+  await db.withTransaction(async (tx) => {
+    for (const table of additions) {
+      inserted[table.table] = 0;
+      for (const row of table.rows) {
+        const predicate = table.keys.map((column) => `${column}=?`).join(' AND ');
+        const existing = await tx.get(
+          `SELECT ${table.columns.join(',')} FROM ${table.table} WHERE ${predicate}`,
+          table.keys.map((column) => row[column]),
+        );
+        if (existing) {
+          if (!table.columns.every((column) => same(existing[column], row[column]))) {
+            throw new Error(`Local data migration conflict in ${table.table} (${table.keys.map((key) => `${key}=${row[key]}`).join(', ')})`);
+          }
+          continue;
+        }
+        await tx.run(
+          `INSERT INTO ${table.table} (${table.columns.join(',')}) VALUES (${table.columns.map(() => '?').join(',')})`,
+          table.columns.map((column) => row[column]),
+        );
+        inserted[table.table]++;
+      }
+    }
+
+    let readingId = Number((await tx.get('SELECT COALESCE(MAX(id),0) AS id FROM temperature_readings')).id);
+    for (const shipment of data.shipments.filter((row) => row.id >= 'SS-2070' && row.id <= 'SS-2072')) {
+      const current = await tx.get('SELECT COUNT(*) AS n FROM temperature_readings WHERE shipment_id=?', [shipment.id]);
+      if (current.n) continue;
+      const readings = data.shipmentReadings[shipment.id] || [];
+      for (let index = 0; index < readings.length; index++) {
+        await tx.run(
+          'INSERT INTO temperature_readings (id,shipment_id,batch,ts,temp_c) VALUES (?,?,?,?,?)',
+          [++readingId, shipment.id, shipment.batch, `T-${readings.length - index}h`, readings[index]],
+        );
+      }
+      inserted.temperature_readings = (inserted.temperature_readings || 0) + readings.length;
+    }
+
+    const trackingCount = Number((await tx.get('SELECT COUNT(*) AS n FROM shipment_tracking')).n);
+    if (trackingCount < data.shipments.length) {
+      let trackingInserted = 0;
+      for (let index = 0; index < data.shipments.length; index++) {
+        const shipment = data.shipments[index];
+        const trackingId = shipment.id.startsWith('SS-208')
+          ? `TRK-${shipment.id}`
+          : `SYN-TRK-${String(index + 1).padStart(3, '0')}`;
+        const existing = await tx.get('SELECT * FROM shipment_tracking WHERE tracking_id=?', [trackingId]);
+        if (existing) continue;
+        await tx.run(
+          `INSERT INTO shipment_tracking (tracking_id,shipment_id,ts,latitude,longitude,location,status,delay_hours)
+           VALUES (?,?,?,?,?,?,?,?)`,
+          [trackingId, shipment.id, '2026-11-04T17:11:00+05:30', null, null,
+            shipment.origin_label, shipment.status, shipment.delay_hours],
+        );
+        trackingInserted++;
+      }
+      inserted.shipment_tracking = trackingInserted;
+    }
+  });
+  return inserted;
+}
+
+module.exports = { seed, clearAll, seedGeographicAdditions };

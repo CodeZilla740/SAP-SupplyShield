@@ -12,9 +12,9 @@ hash-chained audit trail.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│ React 19 + Vite + Tailwind UI (8 screens, unchanged visual identity) │
-│ Overview · Disruption Monitor · Shipment Intelligence · Inventory &  │
-│ Stock Risk · AI Recovery Planning · Cold-Chain Compliance ·          │
+│ React 19 + Vite + Tailwind UI (9 screens, existing visual identity)  │
+│ Overview · Network Records · Disruption Monitor · Shipment Intelligence│
+│ Inventory & Stock Risk · AI Recovery Planning · Cold-Chain Compliance · │
 │ Approval Centre · Execution & Audit Trail                            │
 └──────────────────────────────▲───────────────────────────────────────┘
                                │ REST /api/* (vite proxy in dev)
@@ -145,6 +145,15 @@ npm run cap:seed:generate
 `cap:validate:data` imports every CSV into an explicitly in-memory SQLite
 database, leaving no local database file behind.
 
+## Additional synthetic datasets
+
+The separate [`synthetic-data/`](./synthetic-data/README.md) module generates
+a reproducible, validated 136-row snapshot from the canonical simulated seed
+and a small set of explicitly labelled scenario assumptions. Agent decisions
+remain runtime-derived; the generator does not fabricate recovery outcomes.
+See its README for sources, validation, and the insert-only non-production
+API import.
+
 The Express application remains the runtime entry point; its production
 database facade requires the bound HANA credentials and fails startup rather
 than falling back if HANA is unavailable. Its development fallback is an
@@ -229,7 +238,7 @@ server/            Express backend
   src/integrations/ weather (Open-Meteo) + S/4HANA mock/live adapters
   src/services/    human approval with server-side revalidation
   test/            node:test suites (28 tests)
-ui/                React 19 + Vite + Tailwind frontend (8 screens)
+ui/                React 19 + Vite + Tailwind frontend (9 screens)
 server/db/hana/    SAP HANA DDL (17 tables)
 deployment/        SAP BTP / HANA Cloud deployment assets
 DEMO_SCRIPT.md     5-minute presentation walkthrough
@@ -237,12 +246,18 @@ DEMO_SCRIPT.md     5-minute presentation walkthrough
 
 ## Tests
 
-`npm test` runs 28 tests with the built-in `node:test` runner:
+`npm test` runs 33 tests with the built-in `node:test` runner:
 
 - **rules.test.js** — R1/R2/R3, stock-cover math, shortfall, transfer
   quantity, batch validity, scoring weights.
 - **agents.test.js** — agent execution order, canonical figures
   (28.8 h cover, 80 shortfall, 240 transfer, score 85), hash-chain integrity,
   idempotent re-runs.
-- **api.test.js** — endpoint contracts, 409 block when compliance fails,
-  409 on double decision, validation errors, audit integrity endpoint.
+- **api.test.js** — endpoint contracts, additive synthetic import and agent
+  analysis, 409 block when compliance fails, validation errors, audit integrity.
+
+The Python generator also has reproducibility and data-integrity tests:
+
+```powershell
+python -m unittest discover -s synthetic-data -p "test_*.py"
+```

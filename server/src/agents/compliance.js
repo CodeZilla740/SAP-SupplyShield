@@ -33,6 +33,7 @@ function buildChecks(option, product, r1c, r2c, r3c, batchCheck) {
 
 async function run(db, options, impact) {
   const primary = impact.primary;
+  if (!primary) return options;
   const product = await db.get('SELECT * FROM medicines WHERE sku = ?', [primary.product_sku]);
   const batchCheck = rules.checkBatchValidity(product);
 

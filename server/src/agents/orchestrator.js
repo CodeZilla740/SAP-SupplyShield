@@ -21,8 +21,8 @@ const AGENT_SEQUENCE = ['SensingAgent', 'ImpactAgent', 'ScenarioAgent', 'Logisti
 function factsText(disruption, sensing, impact, options, discarded) {
   const p = impact.primary;
   const lines = [
-    `Event: ${disruption.type} at port ${disruption.port}, severity ${sensing.severity}, expected delay ${sensing.delayHours} hours.`,
-    `${disruption.affected_pos} purchase orders and ${disruption.affected_shipments} shipments across the network are flagged by the alert feed (simulated).`,
+    `Event: ${disruption.type} at network location ${disruption.port}, severity ${sensing.severity}, expected delay ${sensing.delayHours} hours.`,
+    `${impact.tracked_pos} linked purchase orders and ${impact.tracked_shipments} linked shipments were found in the database.`,
     `Highest risk: ${p.medicine} at ${p.facility_name} - stock cover ${p.cover_hours} hours (${p.cover_days} days), shortfall ${p.shortfall} ${p.unit}, recommended top-up ${p.transfer_qty} ${p.unit}.`,
   ];
   for (const o of options) {
@@ -101,8 +101,20 @@ async function runPipelineInTransaction(db, disruptionId, actor) {
     hospitals_assessed: impact.hospitals_assessed, risks: impact.risks,
   });
   if (!impact.primary) {
+    const scenario = await scenarioAgent.run(db, impact);
+    await audit(db, runId, 'ScenarioAgent', 'Recovery scenarios generated', {
+      candidates: [], discarded: [], result: 'No inventory risk identified; no action scenarios required.',
+    });
+    await logisticsAgent.run(db, scenario, impact, sensing);
+    await audit(db, runId, 'LogisticsAgent', 'Routes evaluated, options costed', []);
+    await complianceAgent.run(db, scenario.options, impact);
+    await audit(db, runId, 'ComplianceAgent', 'Hard cold-chain and safety rules applied', []);
     await audit(db, runId, 'Orchestrator', 'No stockout risk identified - no action required', {});
-    return { runId, message: 'No stockout risk within the expected delay window. No action needed.' };
+    return {
+      runId,
+      message: 'No stockout risk within the expected delay window. All five agents completed; no action needed.',
+      agentsCompleted: AGENT_SEQUENCE,
+    };
   }
 
   // ---- Agent 3: Scenario --------------------------------------------------

@@ -5,3 +5,17 @@ server/data/*.db-journal
 .env
 *.log
 .DS_Store
+__pycache__/
+*.py[cod]
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# Backend environment secrets
+server/.env
+.env
+.env.*
+!.env.example
+server/.env

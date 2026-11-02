@@ -9,14 +9,15 @@ const rules = require('../rules/rules');
 const { policy } = require('../db/canonical-data');
 
 async function run(db, disruption, sensing) {
-  // Tracked consignments touching the disrupted port (origin held at port
-  // or already flagged Disrupted by the carrier feed).
+  // Scope disrupted consignments to this port; a shipment flagged Disrupted
+  // for another event must not leak into this scenario's impact assessment.
   const affectedShipments = await db.all(
     `SELECT s.*, m.name AS medicine, m.case_size, m.min_temp, m.max_temp
      FROM shipments s JOIN medicines m ON m.sku = s.product_sku
-     WHERE s.status = 'Disrupted' OR s.origin_code = 'PORT-' || ? OR s.po_ebeln IN (
-       SELECT ebeln FROM purchase_orders WHERE port = ? AND status = 'IN_TRANSIT')`,
-    [disruption.port.replace(/^IN/, ''), disruption.port],
+     WHERE s.po_ebeln IN (
+       SELECT ebeln FROM purchase_orders WHERE port = ? AND status = 'IN_TRANSIT')
+       OR (s.status = 'Disrupted' AND s.origin_code = 'PORT-' || ?)`,
+    [disruption.port, disruption.port.replace(/^IN/, '')],
   );
 
   const affectedPOs = await db.all(
@@ -79,12 +80,12 @@ async function run(db, disruption, sensing) {
   const atRisk = prioritized.filter((r) => r.at_risk);
 
   return {
-    // Tracked counts from the database; the disruption record additionally
-    // carries network-wide aggregates reported by the alert feed.
+    // Scope counts to the linked database records; stale feed aggregates are
+    // never presented as shipment or purchase-order counts.
     tracked_shipments: affectedShipments.length,
     tracked_pos: affectedPOs.length,
-    feed_shipments: disruption.affected_shipments,
-    feed_pos: disruption.affected_pos,
+    feed_shipments: affectedShipments.length,
+    feed_pos: affectedPOs.length,
     hospitals_assessed: facilities.filter((f) => f.type === 'HOSPITAL').length,
     risks: prioritized,
     primary: atRisk[0] || null,

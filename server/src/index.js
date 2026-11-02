@@ -7,7 +7,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const config = require('./config');
 const { connect, engineInfo } = require('./db');
-const { seed } = require('./db/seed');
+const { seed, seedGeographicAdditions } = require('./db/seed');
 const { runPipeline } = require('./agents/orchestrator');
 const { createApp } = require('./app');
 const { assertSessionSecret } = require('./auth/session');
@@ -19,12 +19,20 @@ async function ensureSeed(db) {
     console.log('[boot] empty database - seeding canonical demo data (SIMULATED)');
     await seed(db);
   }
-  // Guarantee the canonical analysed plan exists so every screen has data.
-  const plan = await db.get('SELECT COUNT(*) AS n FROM recovery_plans');
-  if (!plan || plan.n === 0) {
-    console.log('[boot] running initial five-agent pipeline for INC-2026-1104-03');
-    const result = await runPipeline(db, 'INC-2026-1104-03', 'system');
-    console.log('[boot]', result.message);
+  if (db.kind === 'sqlite') {
+    const additions = await seedGeographicAdditions(db);
+    const addedRows = Object.values(additions).reduce((total, count) => total + count, 0);
+    if (addedRows) console.log(`[boot] added ${addedRows} non-destructive local network records`, additions);
+  }
+  // Guarantee analysed plans exist for all supported ports so every screen has data.
+  const initialDisruptions = ['INC-2026-1104-03', 'INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10'];
+  for (const disruptionId of initialDisruptions) {
+    const existing = await db.get('SELECT COUNT(*) AS n FROM recovery_plans WHERE disruption_id = ?', [disruptionId]);
+    if (!existing || existing.n === 0) {
+      console.log(`[boot] running initial five-agent pipeline for ${disruptionId}`);
+      const result = await runPipeline(db, disruptionId, 'system');
+      console.log('[boot]', result.message);
+    }
   }
 }
 
@@ -44,6 +52,13 @@ async function main() {
     console.log('');
   });
 }
+
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
 
 main().catch((e) => {
   console.error('Fatal boot error:', e);

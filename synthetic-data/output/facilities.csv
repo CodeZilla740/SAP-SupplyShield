@@ -1,0 +1,19 @@
+code,name,city,type,priority,ward,storage_loc,is_synthetic
+HOS-STM,St. Martha Hospital,Bengaluru,HOSPITAL,P1,ICU / Diabetes,STM-HOSP-04,True
+HOS-APO,Apollo Central,Bengaluru,HOSPITAL,P1,Immunization,APO-HOSP-01,True
+HOS-MAN,Manipal Hospital,Bengaluru,HOSPITAL,P2,Emergency,MAN-HOSP-02,True
+HOS-CITY,City Care Network,Chennai,HOSPITAL,P3,General,CITY-HOSP-07,True
+WH-BLR,Bengaluru Warehouse,Bengaluru,WAREHOUSE,P2,,BLR-WH-01,True
+WH-HYD,Hyderabad DC,Hyderabad,WAREHOUSE,P2,,HYD-WH-01,True
+WH-MUM,Mumbai Hub,Mumbai,SUPPLIER,P2,,MUM-HUB-01,True
+PORT-MAA,Chennai Port,Chennai,PORT,P1,,INMAA,True
+PORT-BOM,Mumbai Port,Mumbai,PORT,P1,,INBOM,True
+PORT-KOL,Kolkata Port,Kolkata,PORT,P1,,INKOL,True
+PORT-VIZ,Visakhapatnam Port,Visakhapatnam,PORT,P1,,INVIZ,True
+WH-DEL,Delhi NCR Distribution Centre,Delhi NCR,WAREHOUSE,P2,,DEL-WH-01,True
+HOS-DEL,Delhi NCR Hospital,Delhi NCR,HOSPITAL,P1,Emergency,DEL-HOSP-01,True
+WH-KOL,Kolkata Distribution Centre,Kolkata,WAREHOUSE,P2,,KOL-WH-01,True
+HOS-KOL,Kolkata Medical Centre,Kolkata,HOSPITAL,P2,Critical Care,KOL-HOSP-01,True
+WH-PUN,Pune Distribution Centre,Pune,WAREHOUSE,P2,,PUN-WH-01,True
+HOS-PUN,Pune Hospital,Pune,HOSPITAL,P2,Emergency,PUN-HOSP-01,True
+WH-VIZ,Visakhapatnam Regional Hub,Visakhapatnam,WAREHOUSE,P2,,VIZ-WH-01,True

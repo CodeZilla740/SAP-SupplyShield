@@ -1,0 +1,30 @@
+{
+  "synthetic": true,
+  "generated_at": "2026-11-04T19:00:00+05:30",
+  "record_counts": {
+    "facilities": 18,
+    "medicines": 6,
+    "suppliers": 5,
+    "carriers": 6,
+    "lanes": 20,
+    "inventory": 19,
+    "purchase_orders": 13,
+    "shipments": 13,
+    "temperature_readings": 13,
+    "shipment_tracking": 13,
+    "disruptions": 10
+  },
+  "total_records": 136,
+  "assumptions": "Synthetic scenario assumption; not operational or externally verified data.",
+  "units": {
+    "inventory": "medicine-specific unit from medicines.csv",
+    "distance_km": "km",
+    "temperature_c": "degrees Celsius",
+    "carrier_cost": "USD",
+    "cost_per_km": "USD/km",
+    "avg_speed_kmh": "km/h",
+    "handling_hours": "hours",
+    "delay_hours": "hours",
+    "timestamps": "ISO 8601 with explicit timezone offset"
+  }
+}
