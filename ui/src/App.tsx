@@ -581,7 +581,6 @@ function App({ user }: { user: AuthUser }) {
                 <Icon name={item.icon} size={18} />
               </span>
               <span>{item.label}</span>
-              {item.label === "Disruption Monitor" && <b>3</b>}
               {item.label === "Approval Centre" && approval === "pending" && (
                 <i className="nav-pulse" />
               )}
@@ -737,13 +736,6 @@ function App({ user }: { user: AuthUser }) {
                 <small>{istTime(now)} IST</small>
               </span>
             </div>
-            <button
-              className="icon-button notification"
-              aria-label="Notifications"
-              onClick={() => notify("3 critical alerts are listed on the Overview priority queue.")}
-            >
-              <Icon name="bell" size={18} />
-            </button>
             <div className="top-avatar" aria-label={profileName} title={profileName}>{profileInitial}</div>
           </div>
         </header>
@@ -828,10 +820,9 @@ function App({ user }: { user: AuthUser }) {
             />
           )}
           <footer>
-            <span>SUPPLYSHIELD / SAP HACKFEST BENGALURU 2026</span>
             <span>
               <i className="live-dot" />
-              {health ? health.db.label : "Connecting to backend…"}
+              SupplyShield - Resilient Medical Supply Network
             </span>
           </footer>
         </div>
@@ -898,64 +889,52 @@ function Overview({
       />
 
       <section className="health-strip">
-        <div className="health-score">
-          <div className="score-ring">
-            <svg viewBox="0 0 64 64">
-              <circle cx="32" cy="32" r="26" />
-              <circle
-                className="score-progress"
-                cx="32"
-                cy="32"
-                r="26"
-                style={{
-                  strokeDasharray: `${(163.36 * Math.min(100, Math.max(0, data.health.score))) / 100} 163.36`,
-                }}
-              />
-            </svg>
-            <span>
-              <b>{data.health.score}</b>
-              <small>/100</small>
-            </span>
-          </div>
-          <div>
-            <span>TELEMETRY IN-RANGE</span>
-            <strong>{data.health.status}</strong>
-            <small>{data.health.delta}</small>
+        <div className="network-glance-main">
+          <h2>Supply Network at a Glance</h2>
+          <div className="network-highlights">
+            {([
+              { label: "LIVE", description: "Disruption Monitoring", icon: "radar" },
+              { label: "5 AI AGENTS", description: "Intelligent Recovery Analysis", icon: "brain" },
+              { label: "VERIFIED", description: "Cold-Chain Compliance", icon: "snow" },
+              { label: "HUMAN APPROVAL", description: "Planner Decision Control", icon: "approval" },
+            ] as const).map(({ label, description, icon }) => (
+              <div className="network-highlight" key={label}>
+                <Icon name={icon} size={14} />
+                <span>
+                  <b>{label}</b>
+                  <small>{description}</small>
+                </span>
+              </div>
+            ))}
           </div>
         </div>
-        <div className="health-divider" />
-        {data.health.signals.map((s) => (
-          <div className="health-signal" key={s.label}>
-            <i className={s.tone} />
-            <span>
-              <small>{s.label}</small>
-              <b>{s.value}</b>
-            </span>
-          </div>
-        ))}
-        <div className="health-updated">
-          <Icon name="sync" size={14} />
-          Live network model
-        </div>
+        <p className="network-glance-support">
+          Monitor disruptions · Predict supply risks · Recommend recovery · Validate compliance · Approve actions
+        </p>
       </section>
 
       <section className="kpi-grid">
-        {data.kpis.map(({ label, value, trend, detail, icon, tone }) => (
-          <article className="kpi-card" key={label}>
-            <div className={`kpi-icon ${tone}`}>
-              <Icon name={icon as IconName} size={20} />
-            </div>
-            <span>{label}</span>
-            <div className="kpi-value">
-              <strong>{value}</strong>
-              {label === "Critical Medicine Stock" && <small>DAYS</small>}
-            </div>
-            <div className={`kpi-trend ${tone}`}>
-              <b>{trend}</b>
-              <span>{detail}</span>
-            </div>
-          </article>
-        ))}
+        {data.kpis.map(({ label, value, trend, detail, icon, tone }) => {
+          const hideDatabaseLabel = ["Active Disruptions", "At-Risk Shipments", "Hospitals at Risk"].includes(label)
+          const visibleTrend = hideDatabaseLabel ? trend.replace(/\bDATABASE\b/gi, "").trim() : trend
+          const visibleDetail = hideDatabaseLabel ? detail.replace(/\bDATABASE\b/gi, "").trim() : detail
+          return (
+            <article className="kpi-card" key={label}>
+              <div className={`kpi-icon ${tone}`}>
+                <Icon name={icon as IconName} size={20} />
+              </div>
+              <span>{label}</span>
+              <div className="kpi-value">
+                <strong>{value}</strong>
+                {label === "Critical Medicine Stock" && <small>DAYS</small>}
+              </div>
+              <div className={`kpi-trend ${tone}`}>
+                {visibleTrend && <b>{visibleTrend}</b>}
+                {visibleDetail && <span>{visibleDetail}</span>}
+              </div>
+            </article>
+          )
+        })}
       </section>
 
       <section className="command-grid">
@@ -2743,13 +2722,6 @@ function RecoveryPlanning({
     scoreOf(o.scores.protection),
     scoreOf(o.scores.compliance),
   ]
-  const actionableOptions = data.options.filter((option) => option.code !== "WAIT")
-  const feasibleActionableOptions = actionableOptions.filter((option) => Boolean(option.eligible))
-  const insufficientAlternatives = feasibleActionableOptions.length < 2
-  const alternativeReasons = actionableOptions
-    .filter((option) => !option.eligible)
-    .map((option) => `${option.title}: ${recoveryOptionExplanation(option.reason, option.checks)}`)
-
   return (
     <>
       <SectionHeader
@@ -2818,14 +2790,6 @@ function RecoveryPlanning({
           />
         ))}
       </section>
-      {insufficientAlternatives && (
-        <p className="recovery-availability-note" role="status">
-          Only {feasibleActionableOptions.length} of 2 actionable recovery alternatives are feasible.
-          {alternativeReasons.length > 0
-            ? ` ${alternativeReasons.join(" ")}`
-            : " No additional eligible route or donor is present in the linked data."}
-        </p>
-      )}
     </>
   )
 }
@@ -3317,8 +3281,30 @@ function ApprovalCentre({
     }
   }
 
+  const donorWarehouse = rec?.title.match(/\bfrom\s+(.+?)(?:\s+to\s+.+)?$/i)?.[1]?.trim()
   const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Donor Warehouse"
   const impact = data.impact
+  const hasPassingCheck = (pattern: RegExp) =>
+    rec?.checks.some((check) => check.pass && pattern.test(`${check.label} ${check.note}`)) ?? false
+  const reasons = [
+    hasPassingCheck(/inventory|stock|availability|donor/)
+      ? "Sufficient transferable inventory is available."
+      : "",
+    rec &&
+    (Boolean(rec.meets_deadline) ||
+      (impact !== null && Number.isFinite(impact.cover_hours) && rec.eta_hours <= impact.cover_hours))
+      ? "Delivery is expected before the projected stockout."
+      : "",
+    hasPassingCheck(/cold.?chain/) && hasPassingCheck(/batch|validity/)
+      ? "Cold-chain and batch-validity checks passed."
+      : rec && Boolean(rec.compliant)
+        ? "Required compliance validation passed."
+        : "",
+  ].filter(Boolean).slice(0, 3)
+  const riskSeverity = data.disruption.severity.trim()
+  const stockoutHours = impact && Number.isFinite(impact.cover_hours)
+    ? Math.round(impact.cover_hours)
+    : null
   const facts: [string, string, IconName][] = [
     ["Disruption", data.disruption.title, "alert"],
     [
@@ -3404,16 +3390,55 @@ function ApprovalCentre({
                 <Icon name="spark" size={17} />
               </span>
               <div>
-                <b>SupplyShield recommendation explanation</b>
-                <small>{data.plan.explanation_source}</small>
+                <b>SupplyShield Recommendation Summary</b>
               </div>
             </div>
-            <p>{data.plan.explanation}</p>
-            <div className="evidence-chips">
-              {rec &&
-                rec.checks
-                  .filter((c) => c.pass)
-                  .map((c) => <span key={c.label}>{c.label}</span>)}
+            <div className="decision-summary">
+              <section className="summary-section">
+                <h3><Icon name="alert" size={14} /> Disruption</h3>
+                <p><strong>{data.disruption.title}</strong></p>
+                {impact?.facility_name && <small>Affected facility: {impact.facility_name}</small>}
+              </section>
+              <section className="summary-section">
+                <h3><Icon name="medicine" size={14} /> Supply Risk</h3>
+                {impact?.medicine && <p><strong>{impact.medicine}</strong></p>}
+                {stockoutHours !== null && (
+                  <small>
+                    {riskSeverity && `${riskSeverity[0].toUpperCase()}${riskSeverity.slice(1)} · `}
+                    Stockout expected within {stockoutHours} hours.
+                  </small>
+                )}
+              </section>
+              <section className="summary-section summary-recommendation">
+                <h3><Icon name="truck" size={14} /> AI Recommendation</h3>
+                {rec ? (
+                  <>
+                    <p className="recommended-action"><strong>{rec.title}</strong></p>
+                    <div className="summary-details">
+                      {Number.isFinite(rec.qty) && rec.qty > 0 && (
+                        <span><small>Transfer</small><strong>{rec.qty}{impact?.unit ? ` ${impact.unit}` : ""}</strong></span>
+                      )}
+                      {donorWarehouse && <span><small>Donor warehouse</small><strong>{donorWarehouse}</strong></span>}
+                      {Number.isFinite(rec.eta_hours) && rec.eta_hours >= 0 && (
+                        <span><small>Estimated delivery</small><strong>{rec.eta_hours} hours</strong></span>
+                      )}
+                      {Number.isFinite(rec.cost_usd) && rec.cost_usd >= 0 && (
+                        <span><small>Estimated cost</small><strong>${rec.cost_usd.toLocaleString("en-US")}</strong></span>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p>No AI-recommended recovery option is available.</p>
+                )}
+              </section>
+              <section className="summary-section summary-reasons">
+                <h3><Icon name="shield" size={14} /> Why This Option?</h3>
+                {reasons.length > 0 ? (
+                  <ul>{reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                ) : (
+                  <small>No supporting validation details are available.</small>
+                )}
+              </section>
             </div>
           </div>
           <label className="comments-field">
