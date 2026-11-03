@@ -229,7 +229,7 @@ export default function LandingPage({ onLogin, onSignUp }: LandingPageProps) {
                 <div className="landing-feature-top"><span className="landing-feature-icon"><Icon name={feature.icon} size={22} /></span><span className="landing-feature-tag">{feature.tag}</span></div>
                 <h3>{feature.title}</h3>
                 <p>{feature.description}</p>
-                <span className="landing-feature-link">Explore capability <Icon name="arrow" size={15} /></span>
+                {/* <span className="landing-feature-link">Explore capability <Icon name="arrow" size={15} /></span> */}
               </article>
             ))}
           </div>
