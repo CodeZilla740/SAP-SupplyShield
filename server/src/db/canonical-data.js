@@ -81,7 +81,6 @@ const inventory = [
   // Apollo Central: mRNA Vaccine — on hand 840 (cover 91.6h > Chennai delay).
   { facility_code: 'HOS-APO', product_sku: 'MED-MRNA', qty_on_hand: 840, reserved_qty: 0, daily_usage: 220, safety_stock: 0 },
   { facility_code: 'HOS-CITY', product_sku: 'MED-PLASMA', qty_on_hand: 96, reserved_qty: 0, daily_usage: 18, safety_stock: 0 },
-  { facility_code: 'HOS-CITY', product_sku: 'MED-ONCO', qty_on_hand: 50, reserved_qty: 0, daily_usage: 40, safety_stock: 0 },
   // --- Warehouses ---
   { facility_code: 'WH-BLR', product_sku: 'MED-INSULIN', qty_on_hand: 1420, reserved_qty: 0, daily_usage: 0, safety_stock: 1000 },
   // Bengaluru warehouse rabies vaccine stock is available above its reserve.
@@ -139,6 +138,13 @@ const lanes = [
   { id: 11, origin_code: 'WH-HYD', destination_code: 'HOS-KOL', mode: 'ROAD', distance_km: 1410, carrier_code: 'CAR-EAST' },
   // [SIMULATED] Visakhapatnam disruption alternative: Hyderabad DC -> Manipal Hospital (road, recommended)
   { id: 12, origin_code: 'WH-HYD', destination_code: 'HOS-MAN', mode: 'ROAD', distance_km: 570, carrier_code: 'CAR-ROAD' },
+  // [SIMULATED] Bengaluru DC to Hyderabad DC cold-chain replenishment lane.
+  { id: 13, origin_code: 'WH-BLR', destination_code: 'WH-HYD', mode: 'ROAD', distance_km: 570, carrier_code: 'CAR-ROAD' },
+  // [SIMULATED] Source routes for the linked delayed inbound consignments.
+  { id: 14, origin_code: 'WH-MUM', destination_code: 'WH-HYD', mode: 'ROAD', distance_km: 710, carrier_code: 'CAR-ROAD' },
+  { id: 15, origin_code: 'WH-BLR', destination_code: 'HOS-APO', mode: 'ROAD', distance_km: 30, carrier_code: 'CAR-ROAD' },
+  { id: 16, origin_code: 'WH-MUM', destination_code: 'HOS-DEL', mode: 'ROAD', distance_km: 1400, carrier_code: 'CAR-ROAD' },
+  { id: 17, origin_code: 'WH-MUM', destination_code: 'HOS-PUN', mode: 'ROAD', distance_km: 700, carrier_code: 'CAR-WEST' },
 ];
 
 // S/4HANA-shaped purchase orders (EBELN). SIMULATED master data.
@@ -156,6 +162,12 @@ const purchaseOrders = [
   { ebeln: 'PO-88410', supplier_name: 'PlasmaSource India', product_sku: 'MED-PLASMA', destination_code: 'HOS-PUN', qty: 240, port: 'INBOM', status: 'IN_TRANSIT', eta: '2026-11-07' },
   // [SIMULATED] Visakhapatnam Port (INVIZ) — Oncology Biologic to Manipal Hospital, delayed by cyclone
   { ebeln: 'PO-88412', supplier_name: 'OncoMed Distributors', product_sku: 'MED-ONCO', destination_code: 'HOS-MAN', qty: 200, port: 'INVIZ', status: 'IN_TRANSIT', eta: '2026-11-07' },
+  // [SIMULATED] Hyderabad Hub — rabies vaccine replenishment delayed before the DC stockout window.
+  { ebeln: 'PO-88413', supplier_name: 'VaxCare Pvt Ltd', product_sku: 'MED-RABIES', destination_code: 'WH-HYD', qty: 240, port: 'INHYD', status: 'IN_TRANSIT', eta: '2026-11-07' },
+  // [SIMULATED] Bengaluru Logistics Hub — delayed mRNA replenishment to Apollo Central.
+  { ebeln: 'PO-88414', supplier_name: 'VaxCare Pvt Ltd', product_sku: 'MED-MRNA', destination_code: 'HOS-APO', qty: 600, port: 'INBLR', status: 'IN_TRANSIT', eta: '2026-11-07' },
+  { ebeln: 'PO-88415', supplier_name: 'MedPharma Ltd', product_sku: 'MED-INSULIN', destination_code: 'HOS-DEL', qty: 600, port: 'INDEL', status: 'IN_TRANSIT', eta: '2026-11-09' },
+  { ebeln: 'PO-88416', supplier_name: 'PlasmaSource India', product_sku: 'MED-PLASMA', destination_code: 'HOS-PUN', qty: 240, port: 'INPUN', status: 'IN_TRANSIT', eta: '2026-11-08' },
 ];
 
 // eta_text mirrors the UI; delay_hours drives calculations.
@@ -172,6 +184,10 @@ const shipments = [
   { id: 'SS-2080', po_ebeln: 'PO-88410', product_sku: 'MED-PLASMA', batch: 'PL-49F7', origin_code: 'PORT-BOM', origin_label: 'Mumbai Port', destination_code: 'HOS-PUN', destination_label: 'Pune Hospital', route: 'Mumbai-Pune Expressway', status: 'Disrupted', risk: 'Critical', delay_hours: 36, eta_text: '36h delayed', current_temp: 4.0 },
   // [SIMULATED] Visakhapatnam Port cyclone — Oncology Biologic delayed to Manipal Hospital
   { id: 'SS-2082', po_ebeln: 'PO-88412', product_sku: 'MED-ONCO', batch: 'ON-225D', origin_code: 'PORT-VIZ', origin_label: 'Visakhapatnam Port', destination_code: 'HOS-MAN', destination_label: 'Manipal Hospital', route: 'NH16 / Bengaluru', status: 'Disrupted', risk: 'Critical', delay_hours: 48, eta_text: '48h delayed', current_temp: 4.6 },
+  { id: 'SS-2083', po_ebeln: 'PO-88413', product_sku: 'MED-RABIES', batch: 'RV-71B3', origin_code: 'WH-MUM', origin_label: 'Mumbai Supplier Hub', destination_code: 'WH-HYD', destination_label: 'Hyderabad DC', route: 'Mumbai supplier network / NH65 / Hyderabad DC', status: 'Disrupted', risk: 'Critical', delay_hours: 48, eta_text: '48h delayed', current_temp: 4.6 },
+  { id: 'SS-2084', po_ebeln: 'PO-88414', product_sku: 'MED-MRNA', batch: 'VX-112C', origin_code: 'WH-BLR', origin_label: 'Bengaluru Logistics Hub', destination_code: 'HOS-APO', destination_label: 'Apollo Central', route: 'Bengaluru hub cold-chain corridor', status: 'Disrupted', risk: 'Critical', delay_hours: 120, eta_text: '120h delayed', current_temp: 4.3 },
+  { id: 'SS-2085', po_ebeln: 'PO-88415', product_sku: 'MED-INSULIN', batch: 'IN-84A29', origin_code: 'WH-MUM', origin_label: 'Mumbai Supplier Hub', destination_code: 'HOS-DEL', destination_label: 'Delhi NCR Hospital', route: 'Mumbai-Delhi regional cold-chain corridor', status: 'Disrupted', risk: 'Critical', delay_hours: 72, eta_text: '72h delayed', current_temp: 4.5 },
+  { id: 'SS-2086', po_ebeln: 'PO-88416', product_sku: 'MED-PLASMA', batch: 'PL-49F7', origin_code: 'WH-MUM', origin_label: 'Mumbai Supplier Hub', destination_code: 'HOS-PUN', destination_label: 'Pune Hospital', route: 'Mumbai-Pune regional cold-chain corridor', status: 'Disrupted', risk: 'Critical', delay_hours: 48, eta_text: '48h delayed', current_temp: 4.7 },
 ];
 
 // Demo telemetry for every shipment: 5 hourly readings, all inside 2..8 C.
@@ -188,6 +204,10 @@ const shipmentReadings = {
   'SS-2080': [3.9, 4.0, 4.1, 4.0, 4.0],
   'SS-2081': [4.2, 4.3, 4.3, 4.4, 4.3],
   'SS-2082': [4.5, 4.6, 4.6, 4.7, 4.6],
+  'SS-2083': [4.4, 4.5, 4.6, 4.5, 4.6],
+  'SS-2084': [4.1, 4.2, 4.3, 4.2, 4.3],
+  'SS-2085': [4.2, 4.3, 4.4, 4.3, 4.5],
+  'SS-2086': [4.4, 4.5, 4.6, 4.6, 4.7],
 };
 
 // 24-point demo series for insulin batch IN-84A29 (12:00 -> now, hourly x2/h).
@@ -289,6 +309,15 @@ const disruptions = [
     verified: 1, source: 'Port authority operational bulletin (SIMULATED FEED)',
     created_at: '2026-11-04T19:00:00+05:30',
   },
+  {
+    id: 'INC-2026-1104-15', type: 'TRANSPORT_DELAY', title: 'TRANSPORT DELAY — BENGALURU LOGISTICS HUB',
+    port: 'INBLR', severity: 'HIGH',
+    description: 'The linked mRNA vaccine replenishment shipment SS-2084 is delayed by 120 hours en route from Bengaluru Logistics Hub to Apollo Central. (SIMULATED ALERT)',
+    status: 'MONITORING', radius_km: null, wind_kmh: null, expected_delay_hours: 120,
+    affected_shipments: 1, affected_pos: 1, verified: 0,
+    source: 'Synthetic scenario assumption; linked to shipment SS-2084',
+    created_at: '2026-11-04T17:11:00+05:30',
+  },
 ];
 
 const disruptionTimeline = [
@@ -336,6 +365,10 @@ const disruptionTimeline = [
   { disruption_id: 'INC-2026-1104-10', ts: '17:30', title: 'Port authority restriction', text: 'Vessel movements restricted; container handling suspended.', state: 'done' },
   { disruption_id: 'INC-2026-1104-10', ts: '19:00', title: 'Full port closure confirmed', text: 'All marine and gate operations suspended for 48 hours. (SIMULATED)', state: 'critical' },
   { disruption_id: 'INC-2026-1104-10', ts: '19:05', title: 'SupplyShield event created', text: 'Oncology Biologic supply impact correlation started.', state: 'active' },
+  // Bengaluru Logistics Hub — INC-2026-1104-15 (SIMULATED)
+  { disruption_id: 'INC-2026-1104-15', ts: '14:00', title: 'Inbound delay reported', text: 'Shipment SS-2084 carrying mRNA Vaccine from Bengaluru Logistics Hub to Apollo Central is delayed; estimated delay is 120 hours.', state: 'done' },
+  { disruption_id: 'INC-2026-1104-15', ts: '15:20', title: 'Apollo Central stockout risk detected', text: 'Available mRNA Vaccine inventory covers approximately 91.6 hours at current demand, below the linked shipment delay.', state: 'critical' },
+  { disruption_id: 'INC-2026-1104-15', ts: '17:11', title: 'SupplyShield event created', text: 'Impact analysis started for the delayed Bengaluru-to-Apollo replenishment.', state: 'active' },
 ];
 
 const infrastructureStatus = [
@@ -389,6 +422,11 @@ const infrastructureStatus = [
   { disruption_id: 'INC-2026-1104-10', label: 'NH16 Vizag corridor', status: 'CLOSED', tone: 'critical', icon: 'route' },
   { disruption_id: 'INC-2026-1104-10', label: 'Vizag air cargo', status: 'SUSPENDED', tone: 'critical', icon: 'truck' },
   { disruption_id: 'INC-2026-1104-10', label: 'Rail freight terminal', status: 'MONITORING', tone: 'warning', icon: 'inventory' },
+  // Bengaluru Logistics Hub — INC-2026-1104-15 (SIMULATED)
+  { disruption_id: 'INC-2026-1104-15', label: 'SS-2084 replenishment', status: 'DELAYED', tone: 'critical', icon: 'box' },
+  { disruption_id: 'INC-2026-1104-15', label: 'Apollo Central mRNA stock', status: 'AT RISK', tone: 'critical', icon: 'inventory' },
+  { disruption_id: 'INC-2026-1104-15', label: 'Kolkata reefer lane', status: 'OPERATIONAL', tone: 'success', icon: 'route' },
+  { disruption_id: 'INC-2026-1104-15', label: 'Cold-chain road fleet', status: 'OPERATIONAL', tone: 'success', icon: 'truck' },
 ];
 
 const alerts = [
@@ -459,6 +497,38 @@ const portCatalogue = [
     primaryDisruptionId: 'INC-2026-1104-10',
     defaultDisruptionType: 'CYCLONE',
     description: 'Cyclone Nilam — 48h closure (SIMULATED)',
+  },
+  {
+    code: 'INHYD', name: 'Hyderabad Hub', city: 'Hyderabad',
+    lat: 17.3850, lng: 78.4867,
+    facilityCode: 'WH-HYD',
+    primaryDisruptionId: 'INC-2026-1104-02',
+    defaultDisruptionType: 'INBOUND_DELAY',
+    description: 'Hyderabad DC rabies vaccine replenishment — 48h delay (SIMULATED)',
+  },
+  {
+    code: 'INDEL', name: 'Delhi NCR Facility', city: 'Delhi NCR',
+    lat: 28.6139, lng: 77.2090,
+    facilityCode: 'HOS-DEL',
+    primaryDisruptionId: 'INC-2026-1104-05',
+    defaultDisruptionType: 'TRANSPORT_DELAY',
+    description: 'Delhi NCR insulin replenishment — 72h delay (SIMULATED)',
+  },
+  {
+    code: 'INPUN', name: 'Pune DC', city: 'Pune',
+    lat: 18.5204, lng: 73.8567,
+    facilityCode: 'WH-PUN',
+    primaryDisruptionId: 'INC-2026-1104-06',
+    defaultDisruptionType: 'TRANSIT_DELAY',
+    description: 'Pune plasma shipment — 48h delay (SIMULATED)',
+  },
+  {
+    code: 'INBLR', name: 'Bengaluru Logistics Hub', city: 'Bengaluru',
+    lat: 12.9716, lng: 77.5946,
+    facilityCode: 'WH-BLR',
+    primaryDisruptionId: 'INC-2026-1104-15',
+    defaultDisruptionType: 'TRANSPORT_DELAY',
+    description: 'Bengaluru mRNA replenishment — 120h delay (SIMULATED)',
   },
 ];
 

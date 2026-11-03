@@ -201,7 +201,7 @@ router.get('/disruption-locations', asyncH(async (req, res) => {
   const portCityMap = Object.fromEntries((portCatalogue || []).map((p) => [p.code, p.city]));
   // Non-port code to city mapping for synthetic city disruptions
   const cityCodeMap = {
-    INHYD: 'Hyderabad', INDEL: 'Delhi NCR', INPUN: 'Pune', INBLR: 'Bengaluru',
+    INHYD: 'Hyderabad', INDEL: 'Delhi NCR', INPUN: 'Pune',
     INBOM: 'Mumbai', INKOL: 'Kolkata', INMAA: 'Chennai', INVIZ: 'Visakhapatnam',
     INBLR: 'Bengaluru',
   };
@@ -252,7 +252,12 @@ router.get('/ports', asyncH(async (req, res) => {
 router.post('/admin/reseed', asyncH(async (req, res) => {
   await seed(db(req));
   const result = await runPipeline(db(req), 'INC-2026-1104-03', 'system');
-  for (const did of ['INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10']) {
+  for (const did of [
+    'INC-2026-1104-01', 'INC-2026-1104-02', 'INC-2026-1104-04',
+    'INC-2026-1104-05', 'INC-2026-1104-06', 'INC-2026-1104-07',
+    'INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10',
+    'INC-2026-1104-15',
+  ]) {
     await runPipeline(db(req), did, 'system');
   }
   res.json({ reseeded: true, ...result });
@@ -772,8 +777,37 @@ router.get('/recovery-plans/current', asyncH(async (req, res) => {
   } else {
     plan = await latestPlan(req);
   }
-  if (!plan) plan = await latestPlan(req);
-  if (!plan) return res.status(404).json({ error: 'No recovery plan yet - run the AI impact assessment first.' });
+  if (!plan) {
+    let selectedDisruption = null;
+    if (disruptionId) {
+      const portFilter = port ? 'AND port = ?' : '';
+      selectedDisruption = await db(req).get(
+        `SELECT * FROM disruptions WHERE id = ? ${portFilter}`,
+        port ? [disruptionId, port] : [disruptionId],
+      );
+    } else if (port) {
+      selectedDisruption = await db(req).get(
+        `SELECT * FROM disruptions WHERE port = ?
+         ORDER BY CASE status WHEN 'ACTIVE' THEN 1 WHEN 'MONITORING' THEN 2 ELSE 3 END,
+           created_at DESC, id DESC LIMIT 1`,
+        [port],
+      );
+    }
+    if (selectedDisruption) {
+      const sensing = await sensingAgent.run(db(req), selectedDisruption);
+      if (!sensing.errors.length) {
+        const impact = await impactAgent.run(db(req), selectedDisruption, sensing);
+        if (!impact.primary) {
+          const noLinkedData = impact.tracked_shipments === 0 || impact.risks.some((risk) => risk.missing_data);
+          const error = noLinkedData
+            ? 'A recovery plan cannot be generated because linked shipment or medicine inventory data is incomplete.'
+            : 'No stockout risk is predicted for this disruption from the available inventory and delay data; no recovery action is required.';
+          return res.status(404).json({ error });
+        }
+      }
+    }
+    return res.status(404).json({ error: 'No recovery plan exists for the selected disruption or facility. Run its analysis in Disruption Monitor.' });
+  }
   res.json({ demo: true, ...(await planPayload(req, plan)) });
 }));
 

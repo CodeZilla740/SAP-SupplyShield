@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { freshDb, freshServer, post, get } = require('./helpers');
 const { verifyChain } = require('../src/utils/audit');
+const { removeAddedDisruptions, seedGeographicAdditions } = require('../src/db/seed');
 
 test('GET /api/health reports engine and honest integration labels', async () => {
   const { server, base } = await freshServer();
@@ -543,6 +544,281 @@ test('run-analysis endpoint re-executes the five-agent pipeline', async () => {
   assert.equal(res.body.optionsGenerated, 4);
   assert.match(res.body.message, /Recommended: Transfer 240 vials from Bengaluru Warehouse/);
   server.close();
+});
+
+test('Delhi demand surge and Pune power outage create disruption-scoped plans and validations', async (t) => {
+  const { server, base, db } = await freshServer({ withPlan: false });
+  t.after(() => server.close());
+
+  const delhiAnalysis = await post(base, '/api/disruptions/INC-2026-1104-05/run-analysis', {});
+  assert.equal(delhiAnalysis.status, 200);
+  const delhi = await get(
+    base,
+    '/api/recovery-plans/current?port=INDEL&disruptionId=INC-2026-1104-05',
+  );
+  assert.equal(delhi.status, 200);
+  assert.equal(delhi.body.disruption.id, 'INC-2026-1104-05');
+  assert.equal(delhi.body.impact.facility_code, 'HOS-DEL');
+  assert.equal(delhi.body.impact.daily_usage, 168);
+  assert.equal(delhi.body.impact.transfer_qty, 480);
+  const delhiActions = delhi.body.options.filter((option) => option.code !== 'WAIT');
+  assert.equal(delhiActions.length, 2);
+  assert.deepEqual(new Set(delhiActions.map((option) => option.source_code)), new Set(['WH-DEL', 'WH-MUM']));
+  assert.ok(delhiActions.every((option) => option.eligible));
+  assert.equal(delhiActions.filter((option) => option.recommended).length, 1);
+  assert.equal(delhi.body.plan.recommended_option_id, delhi.body.recommended.id);
+  assert.ok(delhi.body.options.some((option) => option.code === 'WAIT'));
+
+  const delhiCompliance = await get(
+    base,
+    '/api/compliance?port=INDEL&disruptionId=INC-2026-1104-05',
+  );
+  assert.equal(delhiCompliance.status, 200);
+  assert.equal(delhiCompliance.body.validations.length, 2);
+  for (const validation of delhiCompliance.body.validations) {
+    const option = delhiActions.find((item) => item.id === validation.id);
+    assert.ok(option);
+    assert.equal(validation.status, 'PASSED');
+    assert.equal(validation.recommendationStatus, option.recommended ? 'RECOMMENDED' : 'HIGH RISK');
+  }
+
+  const approval = await post(
+    base,
+    `/api/recovery-plans/${delhi.body.plan.id}/approve`,
+    { optionId: delhi.body.recommended.id },
+  );
+  assert.equal(approval.status, 200);
+  const approvalRow = await db.get(
+    'SELECT plan_id,option_id FROM approvals WHERE plan_id = ?',
+    [delhi.body.plan.id],
+  );
+  assert.equal(approvalRow.option_id, delhi.body.recommended.id);
+
+  const puneAnalysis = await post(base, '/api/disruptions/INC-2026-1104-06/run-analysis', {});
+  assert.equal(puneAnalysis.status, 200);
+  const pune = await get(
+    base,
+    '/api/recovery-plans/current?port=INPUN&disruptionId=INC-2026-1104-06',
+  );
+  assert.equal(pune.status, 200);
+  assert.equal(pune.body.disruption.id, 'INC-2026-1104-06');
+  assert.equal(pune.body.impact.facility_code, 'HOS-PUN');
+  assert.equal(pune.body.impact.medicine, 'Plasma Derivatives');
+  assert.ok(pune.body.recommended);
+  assert.ok(pune.body.options.some((option) => option.code === 'WAIT'));
+  const puneActions = pune.body.options.filter((option) => option.code !== 'WAIT');
+  assert.ok(puneActions.length >= 2);
+  assert.deepEqual(new Set(puneActions.map((option) => option.code)), new Set(['AIR_REROUTE', 'STOCK_TRANSFER']));
+  assert.equal(puneActions.filter((option) => option.eligible).length, 1);
+  const puneRecommended = pune.body.recommended;
+  assert.equal(puneRecommended.code, 'STOCK_TRANSFER');
+  assert.equal(puneRecommended.source_code, 'WH-MUM');
+  assert.equal(puneRecommended.qty, 96);
+  assert.equal(puneRecommended.eta_hours, 12.3);
+  assert.equal(puneRecommended.cost_usd, 2240);
+  assert.equal(puneRecommended.recommended, 1);
+  assert.equal(pune.body.plan.recommended_option_id, puneRecommended.id);
+  assert.deepEqual(puneRecommended.scores, { speed: 49, cost: 26, protection: 62, compliance: 100 });
+  assert.ok(puneRecommended.checks.every((check) => check.pass));
+  const mumbaiPlasma = await db.get(
+    'SELECT qty_on_hand,reserved_qty,safety_stock FROM inventory WHERE facility_code=? AND product_sku=?',
+    ['WH-MUM', 'MED-PLASMA'],
+  );
+  assert.ok(mumbaiPlasma.qty_on_hand - mumbaiPlasma.reserved_qty - puneRecommended.qty >= mumbaiPlasma.safety_stock);
+  assert.ok(puneActions.some((option) => option.source_code === 'WH-PUN' && /power outage/i.test(option.reason)));
+  const puneAirOption = puneActions.find((option) => option.code === 'AIR_REROUTE');
+  assert.ok(puneAirOption);
+  assert.equal(puneAirOption.eligible, 0);
+  assert.ok(puneAirOption.checks.some((check) => check.label === 'Product temperature range' && !check.pass));
+  assert.ok(puneAirOption.checks.some((check) => check.label === 'Reefer vehicle available' && !check.pass));
+
+  const puneCompliance = await get(
+    base,
+    '/api/compliance?port=INPUN&disruptionId=INC-2026-1104-06',
+  );
+  assert.equal(puneCompliance.status, 200);
+  assert.equal(puneCompliance.body.plan.id, pune.body.plan.id);
+  assert.equal(puneCompliance.body.plan.disruptionId, 'INC-2026-1104-06');
+  assert.equal(puneCompliance.body.plan.recommendedOptionId, puneRecommended.id);
+  assert.equal(puneCompliance.body.validations.length, puneActions.length);
+  for (const validation of puneCompliance.body.validations) {
+    const option = puneActions.find((item) => item.id === validation.id);
+    assert.ok(option);
+    assert.equal(validation.status, option.id === puneRecommended.id ? 'PASSED' : 'FAILED');
+    assert.equal(
+      validation.recommendationStatus,
+      option.id === puneRecommended.id ? 'RECOMMENDED' : 'REJECTED',
+    );
+    assert.equal(validation.checks.every((check) => check.pass), option.id === puneRecommended.id);
+    if (option.id !== puneRecommended.id) {
+      assert.ok(validation.checks.some((check) => !check.pass));
+    }
+  }
+
+  const puneApproval = await post(
+    base,
+    `/api/recovery-plans/${pune.body.plan.id}/approve`,
+    { optionId: puneRecommended.id },
+  );
+  assert.equal(puneApproval.status, 200);
+  const puneApprovalRow = await db.get(
+    'SELECT plan_id,option_id FROM approvals WHERE plan_id = ?',
+    [pune.body.plan.id],
+  );
+  assert.deepEqual(puneApprovalRow, { plan_id: pune.body.plan.id, option_id: puneRecommended.id });
+});
+
+test('all original disruptions keep recovery plans and compliance scoped to their own option IDs', async (t) => {
+  const { server, base } = await freshServer({ withPlan: false });
+  t.after(() => server.close());
+  const disruptionIds = [
+    'INC-2026-1104-01', 'INC-2026-1104-02', 'INC-2026-1104-03',
+    'INC-2026-1104-04', 'INC-2026-1104-05', 'INC-2026-1104-06',
+    'INC-2026-1104-07', 'INC-2026-1104-08', 'INC-2026-1104-09',
+    'INC-2026-1104-10',
+  ];
+
+  for (const disruptionId of disruptionIds) {
+    const analysis = await post(base, `/api/disruptions/${disruptionId}/run-analysis`, {});
+    assert.equal(analysis.status, 200, disruptionId);
+    const plan = await get(base, `/api/recovery-plans/current?disruptionId=${disruptionId}`);
+    assert.equal(plan.status, 200, disruptionId);
+    assert.equal(plan.body.disruption.id, disruptionId);
+    const actionable = plan.body.options.filter((option) => option.code !== 'WAIT');
+    assert.ok(actionable.length >= 2, `${disruptionId} should expose its linked route candidates`);
+    assert.ok(plan.body.options.some((option) => option.code === 'WAIT'));
+    assert.equal(new Set(plan.body.options.map((option) => option.id)).size, plan.body.options.length);
+    const feasible = plan.body.options.filter((option) => option.eligible);
+    const recommended = plan.body.options.filter((option) => option.recommended);
+    assert.equal(recommended.length, feasible.length ? 1 : 0, disruptionId);
+    if (feasible.length) {
+      assert.equal(plan.body.plan.recommended_option_id, recommended[0].id);
+      assert.equal(Boolean(recommended[0].eligible), true);
+      if (recommended[0].code !== 'WAIT') {
+        assert.ok(recommended[0].checks.every((check) => check.pass));
+      }
+    }
+
+    const compliance = await get(base, `/api/compliance?disruptionId=${disruptionId}`);
+    assert.equal(compliance.status, 200, disruptionId);
+    assert.deepEqual(
+      new Set(compliance.body.validations.map((validation) => validation.id)),
+      new Set(actionable.map((option) => option.id)),
+    );
+    for (const validation of compliance.body.validations) {
+      const option = actionable.find((item) => item.id === validation.id);
+      const passed = validation.checks.every((check) => check.pass);
+      assert.equal(validation.status, passed ? 'PASSED' : 'FAILED');
+      assert.equal(validation.recommendationStatus, option.recommended ? 'RECOMMENDED' : !option.eligible ? 'REJECTED' : 'HIGH RISK');
+    }
+  }
+});
+
+test('current recovery plan is scoped to the selected disruption and facility', async (t) => {
+  const { server, base } = await freshServer();
+  t.after(() => server.close());
+
+  for (const id of ['INC-2026-1104-08', 'INC-2026-1104-09', 'INC-2026-1104-10']) {
+    assert.equal((await post(base, `/api/disruptions/${id}/run-analysis`, {})).status, 200);
+  }
+  const viz = await get(base, '/api/recovery-plans/current?port=INVIZ');
+  assert.equal(viz.status, 200);
+  assert.equal(viz.body.disruption.id, 'INC-2026-1104-10');
+  assert.equal(viz.body.impact.facility_name, 'Manipal Hospital');
+  assert.equal(viz.body.impact.medicine, 'Oncology Biologic');
+  assert.equal(viz.body.impact.available, 50);
+  assert.match(viz.body.recommended.title, /80 units from Hyderabad DC/);
+  for (const option of viz.body.options) {
+    for (const score of Object.values(option.scores)) {
+      assert.ok(Number.isFinite(score) && score >= 0 && score <= 100);
+    }
+  }
+
+  const mismatchedDisruption = await get(
+    base,
+    '/api/recovery-plans/current?port=INMAA&disruptionId=INC-2026-1104-09',
+  );
+  assert.equal(mismatchedDisruption.status, 404);
+  const exactDisruption = await get(
+    base,
+    '/api/recovery-plans/current?port=INKOL&disruptionId=INC-2026-1104-09',
+  );
+  assert.equal(exactDisruption.status, 200);
+  assert.equal(exactDisruption.body.disruption.id, 'INC-2026-1104-09');
+  assert.equal(exactDisruption.body.impact.facility_name, 'Kolkata Medical Centre');
+  assert.match(exactDisruption.body.recommended.title, /100 doses from Kolkata Distribution Centre/);
+});
+
+test('cold-chain validations use each recovery option checks and preserve failure reasons', async (t) => {
+  const { server, base } = await freshServer();
+  t.after(() => server.close());
+
+  const plan = await get(base, '/api/recovery-plans/current?port=INMAA&disruptionId=INC-2026-1104-03');
+  const compliance = await get(base, '/api/compliance?port=INMAA');
+  assert.equal(plan.status, 200);
+  assert.equal(compliance.status, 200);
+
+  const optionsById = new Map(plan.body.options.map((option) => [option.id, option]));
+  assert.equal(compliance.body.plan.id, plan.body.plan.id);
+  assert.equal(compliance.body.plan.disruptionId, plan.body.disruption.id);
+  assert.equal(compliance.body.validations.length, plan.body.options.filter((option) => option.code !== 'WAIT').length);
+  for (const validation of compliance.body.validations) {
+    const option = optionsById.get(validation.id);
+    assert.ok(option, `validation should map to recovery option ${validation.id}`);
+    assert.equal(validation.medicine, plan.body.impact.medicine);
+    assert.equal(validation.qty, Number(option.qty));
+    assert.equal(validation.unit, plan.body.impact.unit);
+    assert.equal(validation.etaHours, Number(option.eta_hours));
+    assert.equal(validation.costUsd, Number(option.cost_usd));
+    assert.ok(validation.donorWarehouse);
+    const checkPassed = validation.checks.length > 0 && validation.checks.every((check) => check.pass);
+    assert.equal(validation.status, checkPassed ? 'PASSED' : 'FAILED');
+    assert.equal(Boolean(option.compliant), checkPassed);
+    assert.equal(
+      validation.recommendationStatus,
+      option.recommended ? 'RECOMMENDED' : !option.eligible ? 'REJECTED' : 'HIGH RISK',
+    );
+    if (!checkPassed) {
+      const failedCheck = validation.checks.find((check) => !check.pass);
+      assert.ok(failedCheck.note);
+      assert.ok(validation.reason.includes(failedCheck.note));
+    }
+  }
+
+  const transfer = plan.body.options.find((option) => option.code === 'STOCK_TRANSFER');
+  const transferValidation = compliance.body.validations.find((validation) => validation.id === transfer.id);
+  assert.deepEqual(
+    transferValidation.checks.map((check) => check.label),
+    ['Product temperature range', 'Warehouse qualification', 'Reefer vehicle available', 'Batch validity'],
+  );
+  assert.equal(transferValidation.status, 'PASSED');
+  assert.equal(transfer.recommended, 1);
+  const air = compliance.body.validations.find((validation) => validation.code === 'AIR_REROUTE');
+  assert.equal(air.status, 'FAILED');
+
+  const otherCompliance = await get(base, '/api/compliance?port=INMAA&disruptionId=INC-2026-1104-01');
+  assert.deepEqual(otherCompliance.body.validations, []);
+  const noSelection = await get(base, '/api/compliance?port=INMAA&disruptionId=');
+  assert.deepEqual(noSelection.body.validations, []);
+  const selectedPlanCompliance = await get(base, '/api/compliance?port=INMAA&disruptionId=INC-2026-1104-03');
+  assert.deepEqual(
+    selectedPlanCompliance.body.validations.map((validation) => validation.id).sort(),
+    plan.body.options.filter((option) => option.code !== 'WAIT').map((option) => option.id).sort(),
+  );
+});
+
+test('approval revalidates current donor reservations and batch validity', async (t) => {
+  const { server, base, db } = await freshServer();
+  t.after(() => server.close());
+  await db.run(
+    "UPDATE inventory SET reserved_qty = 200 WHERE facility_code = 'WH-BLR' AND product_sku = 'MED-INSULIN'",
+  );
+  await db.run("UPDATE medicines SET expiry = '2025-01-01' WHERE sku = 'MED-INSULIN'");
+
+  const result = await post(base, '/api/recovery-plans/RP-00942/approve', {});
+  assert.equal(result.status, 409);
+  assert.match(result.body.error, /safety stock/);
+  assert.match(result.body.error, /Batch validity FAIL/);
 });
 
 test('concurrent run-analysis requests allocate unique IDs and preserve the audit chain', async () => {

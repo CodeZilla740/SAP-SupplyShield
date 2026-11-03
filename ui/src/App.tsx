@@ -312,10 +312,10 @@ const ALL_DISRUPTION_LOCATIONS: DisruptionLocationItem[] = [
   { code: "INBOM", name: "Mumbai Port", city: "Mumbai", defaultDisruptionType: "FLOOD" },
   { code: "INKOL", name: "Kolkata Port", city: "Kolkata", defaultDisruptionType: "PORT_CONGESTION" },
   { code: "INVIZ", name: "Visakhapatnam Port", city: "Visakhapatnam", defaultDisruptionType: "CYCLONE" },
-  { code: "INHYD", name: "Hyderabad Hub", city: "Hyderabad", defaultDisruptionType: "DENSE_FOG" },
-  { code: "INDEL", name: "Delhi NCR Facility", city: "Delhi NCR", defaultDisruptionType: "DEMAND_SURGE" },
-  { code: "INPUN", name: "Pune DC", city: "Pune", defaultDisruptionType: "POWER_OUTAGE" },
-  { code: "INBLR", name: "Bengaluru Logistics Hub", city: "Bengaluru", defaultDisruptionType: "TRANSIT_DELAY" },
+  { code: "INHYD", name: "Hyderabad Hub", city: "Hyderabad", defaultDisruptionType: "INBOUND_DELAY" },
+  { code: "INDEL", name: "Delhi NCR Facility", city: "Delhi NCR", defaultDisruptionType: "TRANSPORT_DELAY" },
+  { code: "INPUN", name: "Pune DC", city: "Pune", defaultDisruptionType: "TRANSIT_DELAY" },
+  { code: "INBLR", name: "Bengaluru Logistics Hub", city: "Bengaluru", defaultDisruptionType: "TRANSPORT_DELAY" },
 ]
 
 function App({ user }: { user: AuthUser }) {
@@ -817,6 +817,7 @@ function App({ user }: { user: AuthUser }) {
               navigate={navigate}
               version={dataVersion}
               selectedPort={selectedPort}
+              selectedDisruptionId={selectedDisruptionId}
             />
           )}
           {screen === "Execution & Audit Trail" && (
@@ -1455,23 +1456,6 @@ function DisruptionMonitor({
   const [data, setData] = useState<DisruptionDetail | null>(null)
   const [disruptions, setDisruptions] = useState<DisruptionDetail["disruption"][]>([])
   const [loadError, setLoadError] = useState("")
-
-  const portToIncident: Record<string, string> = {
-    INMAA: "INC-2026-1104-03",
-    INBOM: "INC-2026-1104-08",
-    INKOL: "INC-2026-1104-09",
-    INVIZ: "INC-2026-1104-10",
-    INHYD: "INC-2026-1104-02",
-    INDEL: "INC-2026-1104-05",
-    INPUN: "INC-2026-1104-06",
-    INBLR: "INC-2026-1104-03",
-  }
-
-  useEffect(() => {
-    if (selectedPort && portToIncident[selectedPort]) {
-      setSelectedId(portToIncident[selectedPort])
-    }
-  }, [selectedPort])
 
   useEffect(() => {
     listDisruptions()
@@ -2754,12 +2738,17 @@ function RecoveryPlanning({
   const scoreOf = (value: number | undefined) =>
     typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100 ? value : null
   const barsOf = (o: PlanData["options"][number]) => [
-    o.scores.speed ?? 0,
-    o.scores.cost ?? 0,
-    o.scores.protection ?? 0,
-    o.scores.compliance ?? 0,
+    scoreOf(o.scores.speed),
+    scoreOf(o.scores.cost),
+    scoreOf(o.scores.protection),
+    scoreOf(o.scores.compliance),
   ]
-  const comparisonTone: Record<string, string> = { "OPT-A": "red", "OPT-B": "cyan", "OPT-C": "amber" }
+  const actionableOptions = data.options.filter((option) => option.code !== "WAIT")
+  const feasibleActionableOptions = actionableOptions.filter((option) => Boolean(option.eligible))
+  const insufficientAlternatives = feasibleActionableOptions.length < 2
+  const alternativeReasons = actionableOptions
+    .filter((option) => !option.eligible)
+    .map((option) => `${option.title}: ${recoveryOptionExplanation(option.reason, option.checks)}`)
 
   return (
     <>
@@ -2829,36 +2818,14 @@ function RecoveryPlanning({
           />
         ))}
       </section>
-      <section className="panel comparison-panel">
-        <div className="panel-heading">
-          <div>
-            <span className="panel-kicker">NORMALIZED TRADE-OFF ANALYSIS</span>
-            <h2>Scenario comparison</h2>
-          </div>
-          <span className="model-note">Values computed by the scoring engine from database records</span>
-        </div>
-        <div className="comparison-chart">
-          <div className="comparison-labels">
-            <span>Speed</span>
-            <span>Cost efficiency</span>
-            <span>Service protection</span>
-            <span>Compliance</span>
-          </div>
-          {data.options.map((o) => (
-            <div className="comparison-row" key={o.id}>
-              <b>{o.code === "OPT-C" ? "Wait" : o.title}</b>
-              <div>
-                {barsOf(o).map((value, i) => (
-                  <span key={i}>
-                    <i className={comparisonTone[o.code] || "cyan"} style={{ width: `${value}%` }} />
-                    <small>{value}</small>
-                  </span>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+      {insufficientAlternatives && (
+        <p className="recovery-availability-note" role="status">
+          Only {feasibleActionableOptions.length} of 2 actionable recovery alternatives are feasible.
+          {alternativeReasons.length > 0
+            ? ` ${alternativeReasons.join(" ")}`
+            : " No additional eligible route or donor is present in the linked data."}
+        </p>
+      )}
     </>
   )
 }
@@ -2959,8 +2926,8 @@ function ScenarioCard({
         {["Speed", "Cost efficiency", "Service protection", "Compliance"].map((label, index) => (
           <div key={label}>
             <span>{label}</span>
-            <i>
-              <b style={{ width: `${bars[index]}%` }} />
+            <i aria-label={`${label}: ${bars[index] === null ? "unavailable" : `${bars[index]} out of 100`}`}>
+              <b style={{ width: bars[index] === null ? "0%" : `${bars[index]}%` }} />
             </i>
             <small>{bars[index] === null ? "N/A" : bars[index]}</small>
           </div>
@@ -3279,6 +3246,7 @@ function ApprovalCentre({
   navigate,
   version,
   selectedPort,
+  selectedDisruptionId,
 }: {
   approval: "pending" | "approved" | "rejected"
   onDecision: (status: "APPROVED" | "REJECTED") => void
@@ -3286,6 +3254,7 @@ function ApprovalCentre({
   navigate: (screen: Screen) => void
   version: number
   selectedPort?: string
+  selectedDisruptionId: string
 }) {
   const [data, setData] = useState<PlanData | null>(null)
   const [comment, setComment] = useState("")
@@ -3349,7 +3318,7 @@ function ApprovalCentre({
   }
 
   const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Donor Warehouse"
-  const medicineName = inventory?.critical.medicine || "units"
+  const impact = data.impact
   const facts: [string, string, IconName][] = [
     ["Disruption", data.disruption.title, "alert"],
     [
@@ -3401,8 +3370,12 @@ function ApprovalCentre({
           <div className="approval-title">
             <div>
               <span className="panel-kicker">RECOMMENDED RECOVERY PLAN · {data.plan.id}</span>
-              <h2>Bengaluru stock transfer</h2>
-              <p>Emergency inventory transfer to protect insulin continuity at St. Martha Hospital.</p>
+              <h2>{rec?.title || "Manual intervention required"}</h2>
+              <p>
+                {rec
+                  ? `Recovery action for ${impact?.medicine || "the affected medicine"} at ${impact?.facility_name || "the affected facility"}.`
+                  : "No compliant recovery option is available for this disruption."}
+              </p>
             </div>
             <div className="score-chip">
               <Icon name="spark" size={18} />
@@ -3431,47 +3404,16 @@ function ApprovalCentre({
                 <Icon name="spark" size={17} />
               </span>
               <div>
-                <b>SupplyShield Recommendation</b>
+                <b>SupplyShield recommendation explanation</b>
+                <small>{data.plan.explanation_source}</small>
               </div>
             </div>
-            <div className="recommendation-summary">
-              <section>
-                <h3><Icon name="alert" size={13} /> 1. Disruption</h3>
-                <p>{data.disruption.title}{data.disruption.severity ? ` · ${data.disruption.severity} severity` : ""}</p>
-              </section>
-              <section>
-                <h3><Icon name="medicine" size={13} /> 2. Medicine Risk</h3>
-                {inventory && (
-                  <p>
-                    <strong>{inventory.critical.medicine}</strong>
-                    {urgency && <> · <strong>{urgency}</strong></>}
-                    {stockoutHours != null && <> · stockout expected in <strong>{formatHours(stockoutHours)} hours</strong></>}
-                  </p>
-                )}
-              </section>
-              <section>
-                <h3><Icon name="truck" size={13} /> 3. Recommended Action</h3>
-                {rec && (
-                  <p>
-                    Transfer <strong>{rec.qty}{inventory?.critical.unit ? ` ${inventory.critical.unit}` : ""}</strong>
-                    {medicineName !== "units" && <> of <strong>{medicineName}</strong></>}
-                    {donorFrom && <> from <strong>{donorFrom}</strong></>}
-                    {rec.eta_hours != null && <> · delivery in <strong>{formatHours(rec.eta_hours)} hours</strong></>}
-                  </p>
-                )}
-              </section>
-              <section>
-                <h3><Icon name="spark" size={13} /> 4. Why This Recommendation?</h3>
-                {recommendationReasons.length > 0 && (
-                  <ul>
-                    {recommendationReasons.slice(0, 3).map((reason) => <li key={reason}>{reason}</li>)}
-                  </ul>
-                )}
-              </section>
-              <section>
-                <h3><Icon name="check" size={13} /> 5. Expected Outcome</h3>
-                <p>{expectedOutcome}</p>
-              </section>
+            <p>{data.plan.explanation}</p>
+            <div className="evidence-chips">
+              {rec &&
+                rec.checks
+                  .filter((c) => c.pass)
+                  .map((c) => <span key={c.label}>{c.label}</span>)}
             </div>
           </div>
           <label className="comments-field">
