@@ -7,7 +7,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
 
 const config = require('./config');
 const { connect, engineInfo } = require('./db');
-const { seed, seedGeographicAdditions,removeAddedDisruptions,syncDelhiDemandSurge } = require('./db/seed');
+const { seed, seedGeographicAdditions } = require('./db/seed');
 const { runPipeline } = require('./agents/orchestrator');
 const { createApp } = require('./app');
 const { assertSessionSecret } = require('./auth/session');

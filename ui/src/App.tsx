@@ -817,8 +817,6 @@ function App({ user }: { user: AuthUser }) {
               navigate={navigate}
               version={dataVersion}
               selectedPort={selectedPort}
-              selectedDisruptionId={selectedDisruptionId}
-              selectedFacility={ports.find((port) => port.code === selectedPort)?.name || selectedPort}
             />
           )}
           {screen === "Execution & Audit Trail" && (
@@ -1457,6 +1455,23 @@ function DisruptionMonitor({
   const [data, setData] = useState<DisruptionDetail | null>(null)
   const [disruptions, setDisruptions] = useState<DisruptionDetail["disruption"][]>([])
   const [loadError, setLoadError] = useState("")
+
+  const portToIncident: Record<string, string> = {
+    INMAA: "INC-2026-1104-03",
+    INBOM: "INC-2026-1104-08",
+    INKOL: "INC-2026-1104-09",
+    INVIZ: "INC-2026-1104-10",
+    INHYD: "INC-2026-1104-02",
+    INDEL: "INC-2026-1104-05",
+    INPUN: "INC-2026-1104-06",
+    INBLR: "INC-2026-1104-03",
+  }
+
+  useEffect(() => {
+    if (selectedPort && portToIncident[selectedPort]) {
+      setSelectedId(portToIncident[selectedPort])
+    }
+  }, [selectedPort])
 
   useEffect(() => {
     listDisruptions()
@@ -3264,8 +3279,6 @@ function ApprovalCentre({
   navigate,
   version,
   selectedPort,
-  selectedDisruptionId,
-  selectedFacility,
 }: {
   approval: "pending" | "approved" | "rejected"
   onDecision: (status: "APPROVED" | "REJECTED") => void
@@ -3273,11 +3286,8 @@ function ApprovalCentre({
   navigate: (screen: Screen) => void
   version: number
   selectedPort?: string
-  selectedDisruptionId?: string
-  selectedFacility: string
 }) {
   const [data, setData] = useState<PlanData | null>(null)
-  const [inventory, setInventory] = useState<InventoryData | null>(null)
   const [comment, setComment] = useState("")
   const [busy, setBusy] = useState(false)
   const [loadError, setLoadError] = useState("")
@@ -3295,19 +3305,6 @@ function ApprovalCentre({
       })
     return () => { active = false }
   }, [version, selectedPort, selectedDisruptionId])
-
-  useEffect(() => {
-    let active = true
-    setInventory(null)
-    getInventory(selectedPort)
-      .then((result) => {
-        if (active) setInventory(result)
-      })
-      .catch(() => {
-        if (active) setInventory(null)
-      })
-    return () => { active = false }
-  }, [version, selectedPort])
 
   if (!data && !loadError) return <Loading label="HUMAN GOVERNANCE" />
   if (!data) {
@@ -3328,7 +3325,6 @@ function ApprovalCentre({
     )
   }
   const rec = data.recommended
-  const impact = data.impact
   const passedChecks = rec ? rec.checks.filter((c) => c.pass).length : 0
   const totalChecks = rec ? rec.checks.length : 0
 
@@ -3353,42 +3349,12 @@ function ApprovalCentre({
   }
 
   const donorFrom = rec?.title.match(/from\s+(.+)$/i)?.[1] || "Donor Warehouse"
-  const medicineName = impact?.medicine || "units"
-  const cleanFacilityName = selectedFacility
-    .replace(/\b(?:IN[A-Z]{3}|WH-[A-Z0-9-]+)\b/gi, "")
-    .replace(/\b(?:facility|dc|hub|port|logistics)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim()
-  const planPlace = cleanFacilityName || "Selected location"
-  const stockoutHours = impact?.cover_hours ?? null
-  const stockoutThreshold = inventory?.critical.thresholdHours
-  const urgency = stockoutHours != null && stockoutThreshold != null
-    ? stockoutHours <= stockoutThreshold ? "Critical" : "Elevated"
-    : null
-  const formatHours = (hours: number) =>
-    Number.isInteger(hours) ? String(hours) : hours.toFixed(1)
-  const warehouseCheck = rec?.checks.find((check) => /warehouse|donor stock/i.test(check.label))
-  const handlingCheck = rec?.checks.find((check) => /reefer|cold.chain|temperature/i.test(check.label))
-  const recommendationReasons: string[] = []
-  if (rec && stockoutHours != null && rec.eta_hours < stockoutHours) {
-    recommendationReasons.push(
-      `Estimated delivery in ${formatHours(rec.eta_hours)} hours, before stockout in ${formatHours(stockoutHours)} hours.`,
-    )
-  }
-  if (warehouseCheck?.pass) recommendationReasons.push("The donor warehouse has sufficient available stock.")
-  if (handlingCheck?.pass) recommendationReasons.push("Cold-chain handling checks are verified.")
-  const expectedOutcome = rec && stockoutHours != null && rec.eta_hours < stockoutHours
-    ? `Helps maintain ${medicineName} availability at ${impact?.facility_name || planPlace} and reduce the risk of a supply interruption.`
-    : rec
-      ? `Supports continued access to ${medicineName} while ${data.disruption.title} is managed.`
-      : `No recovery option is recommended for ${data.disruption.title}; manual planner review is required.`
+  const medicineName = inventory?.critical.medicine || "units"
   const facts: [string, string, IconName][] = [
     ["Disruption", data.disruption.title, "alert"],
     [
       "Medicine urgency",
-      impact
-        ? `${urgency ? `${urgency} · ` : ""}stockout in ${formatHours(impact.cover_hours)}h`
-        : "Unavailable",
+      impact ? `Critical · stockout in ${Math.round(impact.cover_hours)}h` : "Unavailable",
       "medicine",
     ],
     ["Transfer quantity", rec ? `${rec.qty} ${impact?.unit || "units"}` : "—", "box"],
@@ -3435,12 +3401,8 @@ function ApprovalCentre({
           <div className="approval-title">
             <div>
               <span className="panel-kicker">RECOMMENDED RECOVERY PLAN · {data.plan.id}</span>
-              <h2>{planPlace} stock transfer</h2>
-              <p>
-                {rec
-                  ? `Emergency ${medicineName} transfer to protect continuity at ${impact?.facility_name || planPlace}.`
-                  : `Review the recovery options for ${data.disruption.title} before taking action.`}
-              </p>
+              <h2>Bengaluru stock transfer</h2>
+              <p>Emergency inventory transfer to protect insulin continuity at St. Martha Hospital.</p>
             </div>
             <div className="score-chip">
               <Icon name="spark" size={18} />
@@ -3479,9 +3441,9 @@ function ApprovalCentre({
               </section>
               <section>
                 <h3><Icon name="medicine" size={13} /> 2. Medicine Risk</h3>
-                {impact && (
+                {inventory && (
                   <p>
-                    <strong>{impact.medicine}</strong>
+                    <strong>{inventory.critical.medicine}</strong>
                     {urgency && <> · <strong>{urgency}</strong></>}
                     {stockoutHours != null && <> · stockout expected in <strong>{formatHours(stockoutHours)} hours</strong></>}
                   </p>
@@ -3491,7 +3453,7 @@ function ApprovalCentre({
                 <h3><Icon name="truck" size={13} /> 3. Recommended Action</h3>
                 {rec && (
                   <p>
-                    Transfer <strong>{rec.qty}{impact?.unit ? ` ${impact.unit}` : ""}</strong>
+                    Transfer <strong>{rec.qty}{inventory?.critical.unit ? ` ${inventory.critical.unit}` : ""}</strong>
                     {medicineName !== "units" && <> of <strong>{medicineName}</strong></>}
                     {donorFrom && <> from <strong>{donorFrom}</strong></>}
                     {rec.eta_hours != null && <> · delivery in <strong>{formatHours(rec.eta_hours)} hours</strong></>}
@@ -3591,14 +3553,9 @@ function ApprovalCentre({
           <div className="assumptions">
             <b>Key assumptions</b>
             <ul>
-              <li>{data.disruption.title} is the disruption assessed for this plan.</li>
-              {impact && (
-                <li>
-                  {impact.available} {impact.unit} are available at {impact.facility_name};
-                  stock cover is {formatHours(impact.cover_hours)} hours.
-                </li>
-              )}
-              <li>A human planner must approve the recommended action before execution.</li>
+              <li>Departure within 90 minutes</li>
+              <li>NH48 remains operational</li>
+              <li>Demand remains at 100 vials/day</li>
             </ul>
           </div>
           <button className="text-button full-width" onClick={() => navigate("Cold-Chain Compliance")}>
