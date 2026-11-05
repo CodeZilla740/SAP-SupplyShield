@@ -8,6 +8,28 @@ validates every option against deterministic pharmaceutical compliance rules,
 and hands the final decision to a human planner. Every step is written to a
 hash-chained audit trail.
 
+## Contents
+
+- [Project resources](#project-resources)
+- [Architecture](#architecture)
+- [Quick start](#quick-start)
+- [Authorized access](#authorized-access)
+- [CAP data model and HANA deployment](#cap-data-model-and-hana-deployment)
+- [Additional synthetic datasets](#additional-synthetic-datasets)
+- [Configuration](#configuration)
+- [Honesty labels](#honesty-labels-what-is-simulated)
+- [API overview](#api-overview)
+- [The canonical demo scenario](#the-canonical-demo-scenario)
+- [Project layout](#project-layout)
+- [Tests](#tests)
+
+## Project resources
+
+- [Five-minute demo script](./DEMO_SCRIPT.md)
+- [Build guide (PDF)](./ui/public/SupplyShield-SAP-Hackfest-Build-Guide.pdf)
+- [Synthetic data documentation](./synthetic-data/README.md)
+- [SAP HANA deployment guide](./deployment/README.md)
+
 ## Architecture
 
 ```
@@ -239,7 +261,7 @@ server/            Express backend
   src/llm/         SAP Generative AI Hub adapter (+template fallback)
   src/integrations/ weather (Open-Meteo) + S/4HANA mock/live adapters
   src/services/    human approval with server-side revalidation
-  test/            node:test suites (28 tests)
+  test/            node:test suites (56 test cases)
 ui/                React 19 + Vite + Tailwind frontend (9 screens)
 server/db/hana/    SAP HANA DDL (17 tables)
 deployment/        SAP BTP / HANA Cloud deployment assets
@@ -248,7 +270,8 @@ DEMO_SCRIPT.md     5-minute presentation walkthrough
 
 ## Tests
 
-`npm test` runs 33 tests with the built-in `node:test` runner:
+`npm test` runs the backend test suites with Node.js's built-in `node:test`
+runner (56 test cases):
 
 - **rules.test.js** — R1/R2/R3, stock-cover math, shortfall, transfer
   quantity, batch validity, scoring weights.
