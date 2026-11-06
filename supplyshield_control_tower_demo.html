@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SupplyShield - Agentic AI Control Tower Live Demo</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts & Font Awesome Icons -->
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              dark: '#070b14',
+              card: '#0e1726',
+              border: '#1b2a4a',
+              accent: '#00f2fe',
+              cyan: '#38bdf8',
+              sap: '#008fd3',
+              success: '#22c55e',
+              danger: '#ef4444',
+              warning: '#f59e0b',
+            }
+          },
+          fontFamily: {
+            sans: ['Plus Jakarta Sans', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      background-color: #070b14;
+      color: #f8fafc;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Custom Glassmorphism */
+    .glass-card {
+      background: rgba(14, 23, 38, 0.85);
+      backdrop-filter: blur(12px);
+      border: 1px solid #1b2a4a;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+
+    .glass-card-active {
+      border-color: #00f2fe;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.25);
+    }
+
+    /* Pulsing Glow Effect */
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 0 15px rgba(0, 242, 254, 0.4); }
+      50% { box-shadow: 0 0 25px rgba(0, 242, 254, 0.8); }
+    }
+    .active-glow {
+      animation: pulse-glow 1.8s infinite ease-in-out;
+    }
+
+    /* Scrollbar Styling for Terminal */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #070b14;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1b2a4a;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #38bdf8;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-4 lg:p-6 flex flex-col justify-between">
+
+  <!-- TOP HEADER & ENTERPRISE BAR -->
+  <header class="glass-card rounded-xl p-4 mb-6 border-b border-brand-border">
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      
+      <!-- Title & Branding -->
+      <div class="flex items-center gap-3">
+        <div class="w-12 h-12 rounded-lg bg-gradient-to-br from-brand-sap to-brand-accent flex items-center justify-center text-white text-2xl shadow-lg shadow-cyan-500/20">
+          <i class="fa-solid fa-shield-halved"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-extrabold tracking-tight text-white">SupplyShield Live Execution Engine</h1>
+            <span class="bg-brand-sap text-white text-xs font-bold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+              SAP Hackfest 2026
+            </span>
+          </div>
+          <p class="text-xs text-slate-400 font-medium">Agentic AI Control Tower • Resilient Medical Cold-Chains (Track 1)</p>
+        </div>
+      </div>
+
+      <!-- Real-Time System Metrics -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900/60 p-2.5 rounded-lg border border-slate-800 text-xs">
+        <div class="flex items-center gap-2 px-2">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+          <div>
+            <p class="text-slate-400 text-[10px] uppercase font-bold">SAP S/4HANA Core</p>
+            <p class="text-white font-semibold flex items-center gap-1">Connected <i class="fa-solid fa-circle-check text-emerald-400 text-[10px]"></i></p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 px-2 border-l border-slate-800">
+          <span class="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping"></span>
+          <div>
+            <p class="text-slate-400 text-[10px] uppercase font-bold">SAP Event Mesh</p>
+            <p class="text-emerald-400 font-semibold font-mono">SAP BTP ONLINE</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 px-2 border-l border-slate-800">
+          <i class="fa-solid fa-robot text-sky-400"></i>
+          <div>
+            <p class="text-slate-400 text-[10px] uppercase font-bold">Active Swarm</p>
+            <p class="text-white font-semibold">5/5 AI Agents</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 px-2 border-l border-slate-800">
+          <i class="fa-solid fa-stopwatch text-brand-accent"></i>
+          <div>
+            <p class="text-slate-400 text-[10px] uppercase font-bold">E2E Latency</p>
+            <p class="text-brand-accent font-bold font-mono" id="latencyDisplay">1.8s Target</p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- MAIN CONTROLLER BAR -->
+  <div class="glass-card rounded-xl p-4 mb-6">
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-3 w-full sm:w-auto">
+        <button id="btnSimulate" onclick="runSimulation()" class="w-full sm:w-auto bg-gradient-to-r from-cyan-600 to-sky-500 hover:from-cyan-500 hover:to-sky-400 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow-lg shadow-cyan-900/30 transition-all flex items-center justify-center gap-2">
+          <i class="fa-solid fa-play"></i> Run Live 1.8s Triage
+        </button>
+        <button id="btnReset" onclick="resetDemo()" class="bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-sm px-4 py-2.5 rounded-lg border border-slate-700 transition-all flex items-center gap-2">
+          <i class="fa-solid fa-rotate-right"></i> Reset
+        </button>
+      </div>
+
+      <!-- Mode Controls -->
+      <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+        <span class="text-xs text-slate-400 font-semibold uppercase">Mode:</span>
+        <div class="bg-slate-900 p-1 rounded-lg border border-slate-800 flex text-xs font-semibold">
+          <button id="modeAuto" onclick="setMode('auto')" class="px-3 py-1.5 rounded-md bg-brand-accent text-slate-950 font-bold transition-all">
+            Auto-Run (1.8s)
+          </button>
+          <button id="modeStep" onclick="setMode('step')" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition-all">
+            Manual Step-by-Step
+          </button>
+        </div>
+        <button id="btnNextStep" onclick="executeNextStep()" class="hidden bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3 py-2 rounded-lg transition-all flex items-center gap-1">
+          Next Step <i class="fa-solid fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FIVE-STEP VISUAL PIPELINE STEPPER -->
+  <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mb-6">
+    
+    <!-- Step 1 -->
+    <div id="stepCard1" class="glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-mono font-extrabold text-slate-400 uppercase tracking-wider">Step 01 • T=0.0s</span>
+        <span id="stepIcon1" class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center">1</span>
+      </div>
+      <h3 class="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-satellite-dish text-red-400"></i> Disruption Ingest
+      </h3>
+      <p class="text-[11px] text-slate-400 leading-tight">NOAA alert: Cyclone landfall closes Port Chennai. 42 POs flagged.</p>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="stepCard2" class="glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-mono font-extrabold text-slate-400 uppercase tracking-wider">Step 02 • T=0.4s</span>
+        <span id="stepIcon2" class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center">2</span>
+      </div>
+      <h3 class="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-database text-brand-sap"></i> SAP OData Fetch
+      </h3>
+      <p class="text-[11px] text-slate-400 leading-tight">Queries S/4HANA: Insulin batch #IN-902. Stock cover = 1.2 days.</p>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="stepCard3" class="glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-mono font-extrabold text-slate-400 uppercase tracking-wider">Step 03 • T=0.9s</span>
+        <span id="stepIcon3" class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center">3</span>
+      </div>
+      <h3 class="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-brain text-purple-400"></i> Agent Evaluation
+      </h3>
+      <p class="text-[11px] text-slate-400 leading-tight">Simulates Air Reroute ($4.2k) vs Stock Transfer ($1.1k).</p>
+    </div>
+
+    <!-- Step 4 -->
+    <div id="stepCard4" class="glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-mono font-extrabold text-slate-400 uppercase tracking-wider">Step 04 • T=1.2s</span>
+        <span id="stepIcon4" class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center">4</span>
+      </div>
+      <h3 class="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-snowflake text-amber-400"></i> Cold-Chain Guard
+      </h3>
+      <p class="text-[11px] text-slate-400 leading-tight">Verifies +2°C to +8°C trucks available. <span class="text-red-400 font-semibold">Rejects Plan A</span>.</p>
+    </div>
+
+    <!-- Step 5 -->
+    <div id="stepCard5" class="glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-[10px] font-mono font-extrabold text-slate-400 uppercase tracking-wider">Step 05 • T=1.8s</span>
+        <span id="stepIcon5" class="w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center">5</span>
+      </div>
+      <h3 class="text-xs font-bold text-white mb-1 flex items-center gap-1.5">
+        <i class="fa-solid fa-user-check text-emerald-400"></i> Human Auth
+      </h3>
+      <p class="text-[11px] text-slate-400 leading-tight">Planner evaluates recommendation and triggers automated SAP PO.</p>
+    </div>
+
+  </div>
+
+  <!-- WORKSPACE GRID: TERMINAL LOGS & HUMAN GOVERNANCE PANEL -->
+  <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-grow">
+    
+    <!-- LEFT 7 COLS: SAP EVENT MESH & TRACE TERMINAL -->
+    <div class="lg:col-span-7 flex flex-col glass-card rounded-xl border border-brand-border overflow-hidden min-h-[380px]">
+      <div class="bg-slate-900/90 px-4 py-3 border-b border-brand-border flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-terminal text-brand-accent text-sm"></i>
+          <span class="text-xs font-mono font-bold text-slate-200">SAP Event Mesh & Agent Trace Log</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span id="terminalStatus" class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400">
+            IDLE
+          </span>
+          <button onclick="clearTerminal()" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-trash-can"></i></button>
+        </div>
+      </div>
+
+      <!-- Monospace Console Body -->
+      <div id="terminalBody" class="p-4 font-mono text-xs text-slate-300 leading-relaxed overflow-y-auto flex-grow bg-slate-950/80 space-y-2">
+        <p class="text-slate-500">// Waiting for simulation trigger... Click "Run Live 1.8s Triage" to execute agent workflow.</p>
+      </div>
+
+      <!-- Hash Footer -->
+      <div class="bg-slate-950 px-4 py-2 border-t border-slate-900 flex items-center justify-between text-[11px] font-mono text-slate-500">
+        <span id="hashDisplay">State Ledger: sqlite://demo_audit.db</span>
+        <span>Cryptographic Hash: <span id="cryptoHash" class="text-slate-400 font-bold">0x8f2a11b...</span></span>
+      </div>
+    </div>
+
+    <!-- RIGHT 5 COLS: HUMAN GOVERNANCE CONTROL TOWER CARD -->
+    <div class="lg:col-span-5 flex flex-col glass-card rounded-xl border border-brand-border overflow-hidden">
+      <div class="bg-slate-900/90 px-4 py-3 border-b border-brand-border flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <i class="fa-solid fa-user-shield text-emerald-400 text-sm"></i>
+          <span class="text-xs font-bold text-white uppercase tracking-wider">Human Governance Gateway</span>
+        </div>
+        <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+          Layer 3 Governance
+        </span>
+      </div>
+
+      <div class="p-4 flex-grow flex flex-col justify-between space-y-4">
+        
+        <!-- Idle State -->
+        <div id="govIdleState" class="text-center py-12 flex flex-col items-center justify-center text-slate-500 my-auto">
+          <i class="fa-solid fa-shield-cat text-4xl text-slate-700 mb-3"></i>
+          <p class="text-xs font-semibold">No Pending Disruption Authorization</p>
+          <p class="text-[11px] text-slate-600 mt-1">Run the simulation to trigger agent trade-off analysis.</p>
+        </div>
+
+        <!-- Active Decision State (Hidden initially) -->
+        <div id="govActiveState" class="hidden space-y-3">
+          
+          <!-- Alert Banner -->
+          <div class="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2.5">
+            <i class="fa-solid fa-triangle-exclamation text-red-400 text-sm mt-0.5"></i>
+            <div>
+              <p class="text-xs font-bold text-red-200 uppercase tracking-wider">ACTION REQUIRED</p>
+              <h3 class="text-sm font-bold text-white mt-0.5">Recommended Recovery Plan</h3>
+              <p class="text-[11px] text-slate-300">Target SKU: Insulin Vials (Batch #IN-902) • Hospital Central Hub</p>
+            </div>
+          </div>
+
+          <!-- Scenario Comparison Matrix -->
+          <div class="space-y-2">
+            <p class="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Evaluated Recovery Scenarios:</p>
+            
+            <!-- Option A Card -->
+            <div class="p-3 rounded-lg bg-slate-900/80 border border-red-500/30 relative">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-bold text-slate-300">Option A: Emergency Air Freight</span>
+                <span class="text-[10px] font-extrabold px-2 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">REJECTED</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-[11px] text-slate-400 mt-2">
+                <div>Cost: <b class="text-white">$4,200</b></div>
+                <div>ETA: <b class="text-white">4 Hours</b></div>
+                <div class="text-red-400 font-semibold">No Cold Cert</div>
+              </div>
+              <p class="text-[10px] text-red-400/80 mt-1.5 border-t border-slate-800/80 pt-1">
+                <i class="fa-solid fa-ban text-[9px]"></i> Rejection reason: Carrier cold-chain uncertified (+2°C to +8°C).
+              </p>
+            </div>
+
+            <!-- Option B Card (Recommended) -->
+            <div class="p-3 rounded-lg bg-slate-900/90 border-2 border-emerald-500/80 relative shadow-lg shadow-emerald-950/40">
+              <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                  Option B: Stock Transfer (Bengaluru Hub)
+                  <i class="fa-solid fa-circle-check text-emerald-400 text-xs"></i>
+                </span>
+                <span class="text-[10px] font-extrabold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">PASSED ALL CHECKS</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-[11px] text-slate-300 mt-2 text-center bg-slate-950/60 p-2 rounded">
+                <div>ETA: <b class="text-white block font-mono text-xs">6 Hours</b></div>
+                <div>Cost: <b class="text-emerald-400 font-mono block text-xs">$1,100</b></div>
+                <div>Cold-Chain: <b class="text-emerald-400 block font-semibold text-[10px]">+4°C Verified</b></div>
+              </div>
+              <p class="text-[10px] text-slate-400 mt-1.5 border-t border-slate-800 pt-1">
+                Transfers 500 vials from nearby warehouse via certified refrigerated transport.
+              </p>
+            </div>
+
+          </div>
+
+          <!-- Decision Action Buttons (Streamlined: Approve + Audit Log) -->
+          <div id="decisionActions" class="space-y-2 pt-2">
+            <button id="approveBtn" onclick="approvePlan()" disabled class="w-full bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs py-2.5 rounded-lg shadow-lg shadow-emerald-900/30 transition-all flex items-center justify-center gap-2">
+              <i class="fa-solid fa-check-double"></i> Approve & Trigger SAP Purchase Order
+            </button>
+            <button id="auditBtn" onclick="viewAudit()" disabled class="w-full bg-slate-800 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed text-slate-300 font-semibold text-xs py-2 rounded-lg border border-slate-700 transition-all flex items-center justify-center gap-2">
+              <i class="fa-solid fa-file-contract"></i> View Audit Log
+            </button>
+          </div>
+
+          <!-- Approved Result Notification (Hidden initially) -->
+          <div id="approvedSuccess" class="hidden p-3.5 rounded-lg bg-emerald-950/80 border border-emerald-500/50 space-y-2">
+            <div class="flex items-center gap-2 text-emerald-300 font-bold text-xs">
+              <i class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+              APPROVAL CONFIRMED
+            </div>
+            <p class="text-[11px] text-emerald-100 font-mono">SAP PO #94012 Generated • Stock Transfer Reserved</p>
+            <div class="text-[10px] text-emerald-400/80 bg-emerald-900/30 p-2 rounded font-mono border border-emerald-800/50">
+              Audit Hash: <span id="auditHashConfirmed" class="text-white">0x8f2a11b94c20fe84a</span><br>
+              Planner ID: <span class="text-white">SAP_USER_88192</span>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- JAVASCRIPT SIMULATION LOGIC -->
+  <script>
+    let currentStep = 0;
+    let mode = 'auto'; // 'auto' or 'step'
+    let isRunning = false;
+    let timerId = null;
+
+    function setMode(newMode) {
+      mode = newMode;
+      document.getElementById('modeAuto').className = mode === 'auto' 
+        ? 'px-3 py-1.5 rounded-md bg-brand-accent text-slate-950 font-bold transition-all'
+        : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition-all';
+      
+      document.getElementById('modeStep').className = mode === 'step' 
+        ? 'px-3 py-1.5 rounded-md bg-brand-accent text-slate-950 font-bold transition-all'
+        : 'px-3 py-1.5 rounded-md text-slate-400 hover:text-white transition-all';
+
+      if (mode === 'step' && isRunning) {
+        document.getElementById('btnNextStep').classList.remove('hidden');
+      } else {
+        document.getElementById('btnNextStep').classList.add('hidden');
+      }
+    }
+
+    function resetDemo() {
+      clearTimeout(timerId);
+      currentStep = 0;
+      isRunning = false;
+
+      // Reset Stepper
+      for (let i = 1; i <= 5; i++) {
+        const card = document.getElementById(`stepCard${i}`);
+        const icon = document.getElementById(`stepIcon${i}`);
+        card.className = "glass-card rounded-xl p-3.5 border-l-4 border-l-slate-700 transition-all";
+        icon.className = "w-6 h-6 rounded-full bg-slate-800 text-slate-400 text-xs flex items-center justify-center";
+        icon.innerHTML = i;
+      }
+
+      // Reset Terminal
+      document.getElementById('terminalBody').innerHTML = `<p class="text-slate-500">// Waiting for simulation trigger... Click "Run Live 1.8s Triage" to execute agent workflow.</p>`;
+      document.getElementById('terminalStatus').className = "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-800 text-slate-400";
+      document.getElementById('terminalStatus').innerText = "IDLE";
+      document.getElementById('cryptoHash').innerText = "0x8f2a11b...";
+
+      // Reset Governance Panel
+      document.getElementById('govIdleState').classList.remove('hidden');
+      document.getElementById('govActiveState').classList.add('hidden');
+      document.getElementById('approvedSuccess').classList.add('hidden');
+      document.getElementById('decisionActions').classList.remove('hidden');
+      document.getElementById('approveBtn').disabled = true;
+      document.getElementById('auditBtn').disabled = true;
+
+      // Reset Controls
+      document.getElementById('btnSimulate').disabled = false;
+      document.getElementById('btnNextStep').classList.add('hidden');
+    }
+
+    function clearTerminal() {
+      document.getElementById('terminalBody').innerHTML = '';
+    }
+
+    function appendLog(topic, message, type = 'info') {
+      const body = document.getElementById('terminalBody');
+      const time = new Date().toLocaleTimeString();
+      let colorClass = "text-sky-400";
+      if (type === 'danger') colorClass = "text-red-400 font-bold";
+      if (type === 'success') colorClass = "text-emerald-400 font-bold";
+      if (type === 'warning') colorClass = "text-amber-400 font-bold";
+
+      const p = document.createElement('p');
+      p.className = "leading-relaxed border-b border-slate-900/50 pb-1";
+      p.innerHTML = `<span class="text-slate-600">[${time}]</span> <span class="${colorClass}">${topic}</span>: <span class="text-slate-200">${message}</span>`;
+      body.appendChild(p);
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function highlightStep(stepNum, status = 'active') {
+      const card = document.getElementById(`stepCard${stepNum}`);
+      const icon = document.getElementById(`stepIcon${stepNum}`);
+
+      if (status === 'active') {
+        card.className = "glass-card rounded-xl p-3.5 border-l-4 border-l-brand-accent active-glow transition-all";
+        icon.className = "w-6 h-6 rounded-full bg-brand-accent text-slate-950 font-bold text-xs flex items-center justify-center";
+        icon.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i>`;
+      } else if (status === 'complete') {
+        card.className = "glass-card rounded-xl p-3.5 border-l-4 border-l-emerald-500 transition-all";
+        icon.className = "w-6 h-6 rounded-full bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center";
+        icon.innerHTML = `<i class="fa-solid fa-check"></i>`;
+      }
+    }
+
+    function runSimulation() {
+      resetDemo();
+      isRunning = true;
+      document.getElementById('btnSimulate').disabled = true;
+      document.getElementById('terminalStatus').className = "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30";
+      document.getElementById('terminalStatus').innerText = "STREAM ACTIVE";
+      
+      clearTerminal();
+      executeNextStep();
+    }
+
+    function executeNextStep() {
+      currentStep++;
+
+      if (currentStep === 1) {
+        highlightStep(1, 'active');
+        appendLog("[EVENT MESH]", "Topic: sap/s4/beh/shipment/v1/Disrupted triggered by NOAA Webhook", "warning");
+        appendLog("[SENSING AGENT]", "Inbound Alert: Cyclone landfall closes Port Chennai (INMAA). Severity: HIGH.", "info");
+
+        if (mode === 'auto') timerId = setTimeout(() => { highlightStep(1, 'complete'); executeNextStep(); }, 400);
+      } 
+      else if (currentStep === 2) {
+        highlightStep(2, 'active');
+        appendLog("[SAP ODATA FETCH]", "Connecting to S/4HANA OData Endpoint: /sap/opu/odata/sap/API_PURCHASEORDER_PROCESS_SRV", "info");
+        appendLog("[IMPACT AGENT]", "Queried Inventory: Insulin batch #IN-902 identified. Facility stock cover: 1.2 days remaining.", "danger");
+
+        if (mode === 'auto') timerId = setTimeout(() => { highlightStep(2, 'complete'); executeNextStep(); }, 500);
+      } 
+      else if (currentStep === 3) {
+        highlightStep(3, 'active');
+        appendLog("[SCENARIO AGENT]", "Simulating Option A (Emergency Air Reroute): Cost $4,200 | ETA 4 hrs.", "info");
+        appendLog("[SCENARIO AGENT]", "Simulating Option B (Stock Transfer BLR Hub): Cost $1,100 | ETA 6 hrs.", "info");
+
+        if (mode === 'auto') timerId = setTimeout(() => { highlightStep(3, 'complete'); executeNextStep(); }, 400);
+      } 
+      else if (currentStep === 4) {
+        highlightStep(4, 'active');
+        appendLog("[COMPLIANCE AGENT]", "Checking cold-chain temperature policy (+2°C to +8°C required)...", "warning");
+        appendLog("[COMPLIANCE AGENT]", "Option A REJECTED: Air carrier lacks active temperature logging certification.", "danger");
+        appendLog("[COMPLIANCE AGENT]", "Option B PASSED ALL CHECKS: Verified refrigerated transport available at BLR hub.", "success");
+
+        // Present Human Governance Card
+        document.getElementById('govIdleState').classList.add('hidden');
+        document.getElementById('govActiveState').classList.remove('hidden');
+
+        if (mode === 'auto') timerId = setTimeout(() => { highlightStep(4, 'complete'); executeNextStep(); }, 500);
+      } 
+      else if (currentStep === 5) {
+        highlightStep(5, 'active');
+        appendLog("[WORKFLOW STATE]", "Recommendation ready -> PENDING HUMAN AUTHORIZATION in Control Tower UI.", "warning");
+        
+        document.getElementById('approveBtn').disabled = false;
+        document.getElementById('auditBtn').disabled = false;
+
+        if (mode === 'step') {
+          document.getElementById('btnNextStep').classList.add('hidden');
+        }
+      }
+    }
+
+    function approvePlan() {
+      highlightStep(5, 'complete');
+      appendLog("[HUMAN GOVERNANCE]", "Planner authorized Option B (Stock Transfer). Generating SAP PO...", "success");
+      appendLog("[SAP PO GENERATION]", "Successfully posted Purchase Order #94012 to SAP S/4HANA SCM.", "success");
+      
+      const newHash = "0x8f2a11b" + Math.random().toString(16).substring(2, 8);
+      document.getElementById('cryptoHash').innerText = newHash;
+      document.getElementById('auditHashConfirmed').innerText = newHash;
+      appendLog("[AUDIT LEDGER]", `Cryptographic Audit Hash committed: ${newHash}`, "info");
+
+      document.getElementById('decisionActions').classList.add('hidden');
+      document.getElementById('approvedSuccess').classList.remove('hidden');
+      document.getElementById('terminalStatus').className = "inline-flex items-center px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+      document.getElementById('terminalStatus').innerText = "ACTION COMPLETED";
+    }
+
+    function viewAudit() {
+      const currentHash = document.getElementById('cryptoHash').innerText;
+      alert(`SupplyShield Audit Record:\n----------------------------------------\n- Ledger Hash: ${currentHash}\n- Disruption Event: Cyclone Landfall (Port Chennai)\n- Affected SKU: Insulin Batch #IN-902\n- Evaluated Scenarios: 2\n- Mandatory Constraint: Cold-Chain (+2°C to +8°C)\n- Option A (Air $4.2k): REJECTED (Uncertified)\n- Option B (Transfer $1.1k): PASSED\n- Authorization: Planner_Admin_88192\n- Execution Target: SAP S/4HANA PO #94012`);
+    }
+  </script>
+
+</body>
+</html>
